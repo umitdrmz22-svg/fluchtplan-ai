@@ -4,20 +4,20 @@ export async function onRequestPost({ request }) {
   const errors = [];
   const warnings = [];
 
-  // Boyut / Ölçek (A3 önerisi)
   if ((plan.size || "").toUpperCase() !== "A3") {
-    warnings.push("Planformat A3 önerilir (Einzelraum dışında).");
+    warnings.push("Format A3 empfohlen (Ausnahme: Einzelraum, dann A4).");
   }
-  // Arka plan beyaz olmalı
-  if (plan.backgroundColor && plan.backgroundColor !== "#ffffff") {
-    errors.push("Arka plan beyaz olmalıdır (ISO 3864-1 ile uyumlu).");
+  // Weißer Hintergrund empfohlen
+  // (Frontend setzt weiß; falls exportseitig geändert wird:)
+  // plan.backgroundColor optional prüfen
+  if (plan.backgroundColor && plan.backgroundColor.toLowerCase() !== "#ffffff") {
+    errors.push("Hintergrund muss weiß sein (ISO 3864‑1).");
   }
-  // Kuzey oku ve “Sie sind hier”
-  if (!plan.hasNorthArrow) warnings.push("Nordpfeil eklenmeli.");
-  if (!plan.hasYouAreHere) warnings.push("“Sie sind hier” işareti eklenmeli.");
-  // ISO 7010 kodları
+  if (!plan.hasNorthArrow) warnings.push("Nordpfeil ergänzen.");
+  if (!plan.hasYouAreHere) warnings.push("„Sie sind hier“ ergänzen.");
+
   const bad = (plan.symbols||[]).filter(s => !/^[EFMW][0-9]{3}$/.test(s.code));
-  if (bad.length) errors.push("ISO 7010 kod biçimi geçersiz: " + bad.map(b=>b.code).join(", "));
+  if (bad.length) errors.push("Ungültige ISO‑7010 Codes: " + bad.map(b=>b.code).join(", "));
 
   return new Response(JSON.stringify({ errors, warnings }), {
     headers: { "Content-Type": "application/json" }
