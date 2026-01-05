@@ -6,10 +6,7 @@ export async function onRequestPost({ env, request }) {
     const kvKey = `draft:${id}`;
     const payload = { id, title, plan, note, author, ts: Date.now() };
 
-    // 1) KV speichern (Key-Value, schnell für Ladevorgänge)
-    await env.DRAFTS.put(kvKey, JSON.stringify(payload));
-
-    // 2) D1 Versionseintrag
+    await env.DRAFTS.put(kvKey, JSON.stringify(payload)); // KV: schneller Zugriff
     const stmt = await env.DB.prepare(
       "INSERT INTO draft_versions (id, draft_key, title, author, plan_json, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
     ).bind(id, kvKey, title || null, author || null, JSON.stringify(plan), note || null);
@@ -20,7 +17,6 @@ export async function onRequestPost({ env, request }) {
     return json({ ok: false, error: String(e) }, 500);
   }
 }
-
 function json(obj, status=200){
   return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
 }
