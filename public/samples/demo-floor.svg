@@ -4,8 +4,9 @@
   <rect x="60" y="60" width="500" height="300" fill="#f1f5f9" stroke="#111"/>
   <rect x="600" y="60" width="620" height="300" fill="#f1f5f9" stroke="#111"/>
   <rect x="60" y="400" width="1160" height="400" fill="#f1f5f9" stroke="#111"/>
-  <path d="M560,210 h40 v-40 h30 v80 h-70 z" fill="#e2e8f0" stroke="#111"/> <!-- kapı örn. -->
+  <path d="M560,210 h40 v-40 h30 v80 h-70 z" fill="#e2e8f0" stroke="#111"/>
   <text x="70" y="90" font-size="14" fill="#111">Büroraum</text>
   <text x="610" y="90" font-size="14" fill="#111">Produktion</text>
   <text x="70" y="430" font-size="14" fill="#111">Lager / Flur</text>
 </svg>
+``
