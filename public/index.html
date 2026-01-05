@@ -3,92 +3,111 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <title>Flucht- und Rettungsplan – AI Ersteller</title>
+  <title>Flucht- und Rettungsplan – AI Ersteller (DIN ISO 23601, ISO 7010)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Browserbasierter Flucht- und Rettungsplan-Ersteller mit ISO 7010-Symbolen, AI-Unterstützung und Entwurfsverwaltung (KV/D1).">
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <header>
     <h1>Flucht- und Rettungsplan – AI Ersteller</h1>
-    <p class="subtitle">DIN ISO 23601 &amp; ISO 7010 Orientierung – Browserda çalışır.</p>
+    <p class="subtitle">DIN ISO 23601 konform, ISO 7010 Symbole, Speicherung in KV/D1.</p>
   </header>
 
   <main>
+    <!-- Abschnitt: Entwürfe verwalten -->
     <section class="panel">
-      <h2>1) Grundriss / Floor</h2>
+      <h2>0) Entwürfe verwalten</h2>
+      <div class="row">
+        <div class="tool">
+          <label for="draftTitle">Entwurfstitel:</label>
+          <input id="draftTitle" type="text" placeholder="z. B. EG - Produktion Nord" />
+        </div>
+        <div class="tool">
+          <button id="saveDraftBtn">Entwurf speichern</button>
+          <button id="listDraftsBtn">Entwürfe laden</button>
+        </div>
+      </div>
+      <div id="draftsList" class="code" aria-live="polite"></div>
+    </section>
+
+    <!-- Abschnitt: Grundriss -->
+    <section class="panel">
+      <h2>1) Grundriss</h2>
       <div class="row">
         <div>
           <label for="floorUpload">Grundriss (SVG/PNG) hochladen:</label>
           <input id="floorUpload" type="file" accept=".svg,.png,.jpg,.jpeg" />
-          <button id="loadSample">Demo Grundriss yükle</button>
+          <button id="loadSample">Demo laden</button>
         </div>
         <div>
-          <label for="scaleInput">Maßstab (örn. 1:250):</label>
+          <label for="scaleInput">Maßstab:</label>
           <input id="scaleInput" type="text" value="1:250" />
           <label for="planSize">Ausgabeformat:</label>
           <select id="planSize">
             <option value="A3">A3 (empfohlen)</option>
-            <option value="A4">A4 (nur Einzelraum)</option>
+            <option value="A4">A4 (nur Einzelraum zulässig)</option>
           </select>
         </div>
       </div>
     </section>
 
+    <!-- Abschnitt: Symbole -->
     <section class="panel">
-      <h2>2) Elemente &amp; Symbole (ISO 7010)</h2>
+      <h2>2) Symbole (ISO 7010)</h2>
+      <p class="subtitle">
+        Lege echte ISO‑7010‑SVGs in <code>public/assets/icons/</code> ab (Dateiname = Code, z. B. <code>E001.svg</code>).
+      </p>
       <div class="row">
         <div class="tool">
-          <label>Rettungszeichen (grün):</label>
-         select>
-          <button id="addRescueSign">Ekle</button>
+          <label>Rettungszeichen (E):</label>
+          <select id="rescueSignSelect"></select>
+          <button id="addRescueSign">Hinzufügen</button>
         </div>
         <div class="tool">
-          <label>Brandbekämpfung (rot):</label>
+          <label>Brandbekämpfung (F):</label>
           <select id="fireSignSelect"></select>
-          <button id="addFireSign">Ekle</button>
+          <button id="addFireSign">Hinzufügen</button>
         </div>
         <div class="tool">
-          <label>Warnzeichen (gelb):</label>
+          <label>Warnzeichen (W):</label>
           <select id="warnSignSelect"></select>
-          <button id="addWarnSign">Ekle</button>
+          <button id="addWarnSign">Hinzufügen</button>
         </div>
         <div class="tool">
-          <label>Gebotszeichen (blau):</label>
+          <label>Gebotszeichen (M):</label>
           <select id="mandSignSelect"></select>
-          <button id="addMandSign">Ekle</button>
+          <button id="addMandSign">Hinzufügen</button>
         </div>
       </div>
       <div class="row">
-        <label>
-          <input type="checkbox" id="showNorth" checked />
-          Nordpfeil göster
-        </label>
-        <label>
-          <input type="checkbox" id="showYouAreHere" checked />
-          “Sie sind hier” işareti göster
-        </label>
+        <label><input type="checkbox" id="showNorth" checked /> Nordpfeil anzeigen</label>
+        <label><input type="checkbox" id="showYouAreHere" checked /> „Sie sind hier“ anzeigen</label>
       </div>
     </section>
 
+    <!-- Abschnitt: AI -->
     <section class="panel">
-      <h2>3) AI Yardımı &amp; Metinler</h2>
+      <h2>3) AI‑Unterstützung</h2>
       <div class="row">
-        <textarea id="siteContext" rows="4" placeholder="Bina / bölüm bağlamı, riskler, ziyaretçi profili…"></textarea>
-        <button id="aiSuggestBtn">AI’den yerleşim önerisi iste</button>
-        <button id="aiTextsBtn">AI’den davranış metinleri iste (Brandfall / Unfall)</button>
+        <textarea id="siteContext" rows="4" placeholder="Bauabschnitt, Gefährdungen, Besucheranteil, besondere Anforderungen …"></textarea>
+      </div>
+      <div class="row">
+        <button id="aiSuggestBtn">AI: Symbol‑/Layout‑Vorschläge</button>
+        <button id="aiTextsBtn">AI: Verhaltensregeln (Brandfall/Unfall)</button>
       </div>
       <div class="row">
         <pre id="aiOutput" class="code"></pre>
       </div>
     </section>
 
+    <!-- Abschnitt: Vorschau & Export -->
     <section class="panel">
-      <h2>4) Önizleme &amp; Dışa Aktarma</h2>
+      <h2>4) Vorschau &amp; Export</h2>
       <div class="row">
         <div id="canvasWrapper">
-          <!-- SVG tuvali -->
           <svg id="planCanvas" viewBox="0 0 1400 1000" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Plan">
-            <rect x="0" y="0" width="1400" height="1000" fill="#fff" />
+            <rect x="0" y="0" width="1400" height="1000" fill="#ffffff" />
             <g id="floorGroup"></g>
             <g id="symbolsGroup"></g>
             <g id="northGroup"></g>
@@ -96,22 +115,26 @@
             <g id="legendGroup"></g>
           </svg>
         </div>
-        <div class="export">
-          <button id="exportSVG">SVG indir</button>
-          <button id="exportPNG">PNG indir</button>
-          <button id="exportPDF">PDF indir (A3)</button>
-        </div>
+      </div>
+      <div class="row export">
+        <button id="validateBtn">DIN/ISO prüfen</button>
+        <button id="exportSVG">SVG exportieren</button>
+        <button id="exportPNG">PNG exportieren</button>
+        <button id="exportPDF">PDF (Drucken A3)</button>
+      </div>
+      <div class="row">
+        <pre id="validationOutput" class="code"></pre>
       </div>
     </section>
   </main>
 
   <footer>
     <small>
-      Hinweis: Ausgabe tasarımı DIN ISO 23601’e uygun kılınmıştır; semboller ISO 7010 serisine referans verir.
-      Nihai plan yerel düzenlemelere göre yetkin kişi tarafından gözden geçirilmelidir. 
+      Hinweis: Gestaltung gemäß DIN ISO 23601; Sicherheitszeichen gemäß ISO 7010/ISO 3864.  
+      Endfreigabe durch fachkundige Stelle im Unternehmen erforderlich. Quellen: DIN ISO 23601; ISO 7010. 
     </small>
   </footer>
 
-  ./app.js</script>
+  <script src="./app.js"></script>
 </body>
 </html>
