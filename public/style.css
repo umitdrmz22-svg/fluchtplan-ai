@@ -1,0 +1,23 @@
+
+:root {
+  --blue: #1e40af; --green: #16a34a; --red: #dc2626; --yellow: #f59e0b;
+  --bg: #f8fafc; --text: #0f172a; --muted: #64748b;
+}
+* { box-sizing: border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+header { padding: 16px 24px; background: white; border-bottom: 1px solid #e2e8f0; }
+h1 { margin: 0 0 4px 0; font-size: 22px; }
+.subtitle { margin: 0; color: var(--muted); }
+main { padding: 16px; max-width: 1200px; margin: 0 auto; }
+.panel { background: white; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 16px; }
+.row { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+.tool { display: flex; gap: 8px; align-items: center; }
+#canvasWrapper { width: 100%; border: 1px dashed #94a3b8; background: #fff; padding: 8px; }
+#planCanvas { width: 100%; height: auto; border: 1px solid #cbd5e1; }
+.code { background: #0b1020; color: #c0d0ff; padding: 8px; border-radius: 6px; max-height: 300px; overflow: auto; }
+.export button { background: var(--blue); color: white; padding: 10px 14px; border: 0; border-radius: 6px; cursor: pointer; }
+.export button + button { background: var(--green); }
+.export button + button + button { background: var(--red); }
+label { font-size: 14px; color: var(--muted); }
+select, input, textarea, button { font-size: 14px; }
+textarea { min-width: 320px; flex: 1; }
