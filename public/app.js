@@ -9,7 +9,7 @@ const northGroup = $("#northGroup");
 const youAreHereGroup = $("#youAreHereGroup");
 const legendGroup = $("#legendGroup");
 
-// Symbol-Datenbank laden
+// Symbol-Datenbank
 let symbolsDB = {};
 fetch("./assets/symbols.json").then(r => r.json()).then(json => {
   symbolsDB = json;
@@ -43,19 +43,17 @@ $("#floorUpload").addEventListener("change", async (ev) => {
   const reader = new FileReader();
   reader.onload = () => {
     if (file.type.includes("svg")) {
-      // inline SVG direkt einfügen
       floorGroup.innerHTML = reader.result;
     } else {
-      // Rasterbild als <image>
       const url = reader.result;
-      floorGroup.innerHTML = `<image href="${url}" x="0" y="0" width="1400" height="1000" />`;
+      floorGroup.innerHTML = `${url}`;
     }
     drawLegend();
   };
   reader.readAsDataURL(file);
 });
 
-// ECHTE ISO 7010 SVG-Icons laden (aus public/assets/icons/{CODE}.svg)
+// ECHTE ISO 7010 SVG-Icons laden (aus /assets/icons/{CODE}.svg) via Function
 async function loadIconSVG(code) {
   const res = await fetch(`/api/icons/${code}`);
   if (res.ok) return await res.text();
@@ -67,20 +65,19 @@ async function loadIconSVG(code) {
 async function drawSymbol(code, x, y) {
   const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
   g.setAttribute("transform", `translate(${x},${y})`);
+  g.setAttribute("data-code", code);
   const svg = await loadIconSVG(code);
-  // Standardgröße: 36x36 mittig; viele ISO-SVGs sind quadratisch. ggf. skalieren.
-  g.innerHTML = `<g transform="translate(-18,-18) scale(1)">${svg}</g>`;
+  g.innerHTML = `<g transform="translate(-18,-18)">${svg}</g>`;
   symbolsGroup.appendChild(g);
   makeDraggable(g);
   g.addEventListener("dblclick", () => g.remove());
 }
 
-// einfache Drag-Funktion
 function makeDraggable(el) {
   let drag = false, sx=0, sy=0, ox=0, oy=0;
   el.addEventListener("mousedown", (e) => {
     drag = true;
-    const m = /translate\\(([-0-9.]+),([-0-9.]+)\\)/.exec(el.getAttribute("transform"));
+    const m = /translate\(([-0-9.]+),([-0-9.]+)\)/.exec(el.getAttribute("transform"));
     ox = m ? parseFloat(m[1]) : 0;
     oy = m ? parseFloat(m[2]) : 0;
     sx = e.clientX; sy = e.clientY;
@@ -119,23 +116,31 @@ $("#showYouAreHere").addEventListener("change", (e) => {
     </g>` : "";
 });
 
-// Legende
+// Legende (Mehrsprachig: de/en)
+function legendText(lang){
+  return lang === "en"
+    ? { title:"Legend", rescue:"Emergency", fire:"Fire", warn:"Warning", mand:"Mandatory" }
+    : { title:"Legende", rescue:"Rettungszeichen", fire:"Brandbekämpfung", warn:"Warnzeichen", mand:"Gebotszeichen" };
+}
 function drawLegend(){
+  const lang = $("#legendLang").value || "de";
+  const t = legendText(lang);
   legendGroup.innerHTML = `
     <g transform="translate(1050,860)">
       <rect x="0" y="0" width="330" height="120" fill="#fff" stroke="#cbd5e1"/>
-      <text x="10" y="20" font-size="14" font-weight="700">Legende</text>
+      <text x="10" y="20" font-size="14" font-weight="700">${t.title}</text>
       <g transform="translate(10,40)">
-        <rect x="0" y="-12" width="24" height="24" fill="#16a34a" stroke="#111"/><text x="32" y="6" font-size="12">Rettungszeichen</text>
-        <rect x="150" y="-12" width="24" height="24" fill="#dc2626" stroke="#111"/><text x="182" y="6" font-size="12">Brandbekämpfung</text>
+        <rect x="0" y="-12" width="24" height="24" fill="#16a34a" stroke="#111"/><text x="32" y="6" font-size="12">${t.rescue}</text>
+        <rect x="150" y="-12" width="24" height="24" fill="#dc2626" stroke="#111"/><text x="182" y="6" font-size="12">${t.fire}</text>
       </g>
       <g transform="translate(10,80)">
-        <rect x="0" y="-12" width="24" height="24" fill="#f59e0b" stroke="#111"/><text x="32" y="6" font-size="12">Warnzeichen</text>
-        <rect x="150" y="-12" width="24" height="24" fill="#1e40af" stroke="#111"/><text x="182" y="6" font-size="12">Gebotszeichen</text>
+        <rect x="0" y="-12" width="24" height="24" fill="#f59e0b" stroke="#111"/><text x="32" y="6" font-size="12">${t.warn}</text>
+        <rect x="150" y="-12" width="24" height="24" fill="#1e40af" stroke="#111"/><text x="182" y="6" font-size="12">${t.mand}</text>
       </g>
     </g>
   `;
 }
+$("#legendLang").addEventListener("change", drawLegend);
 
 // AI-Aufrufe
 $("#aiSuggestBtn").addEventListener("click", async () => {
@@ -161,7 +166,7 @@ $("#aiTextsBtn").addEventListener("click", async () => {
   $("#aiOutput").textContent = JSON.stringify(json, null, 2);
 });
 
-// Validierung DIN/ISO
+// Validierung DIN/ISO inkl. Maßstab
 $("#validateBtn").addEventListener("click", async () => {
   const payload = collectPlanContext();
   const res = await fetch("/api/validate", {
@@ -172,7 +177,7 @@ $("#validateBtn").addEventListener("click", async () => {
   $("#validationOutput").textContent = JSON.stringify(json, null, 2);
 });
 
-// Export
+// Export: Clientseitig
 $("#exportSVG").addEventListener("click", () => {
   const svgData = new XMLSerializer().serializeToString(canvas);
   download("fluchtplan.svg", "image/svg+xml;charset=utf-8", svgData);
@@ -197,6 +202,37 @@ $("#exportPDF").addEventListener("click", () => {
   alert("Bitte über den Browser drucken: A3, 100 %, Hintergrundgrafiken an.");
 });
 
+// Export: Serverseitig (PDF, A3) – nutzt Turnstile + JPEG
+$("#exportPDFServer").addEventListener("click", async () => {
+  // Canvas → JPEG
+  const svgData = new XMLSerializer().serializeToString(canvas);
+  const img = new Image();
+  const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(svgBlob);
+  img.onload = async () => {
+    const cnv = document.createElement("canvas");
+    cnv.width = 1400; cnv.height = 1000;
+    const ctx = cnv.getContext("2d");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0,0,cnv.width,cnv.height);
+    ctx.drawImage(img,0,0);
+    URL.revokeObjectURL(url);
+    cnv.toBlob(async (blob) => {
+      const jpegArray = new Uint8Array(await blob.arrayBuffer());
+      const b64 = btoa(String.fromCharCode(...jpegArray));
+      const token = getTurnstileToken();
+      const res = await fetch("/api/pdf/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jpegBase64: b64, turnstileToken: token })
+      });
+      if (!res.ok) { alert("PDF‑Erstellung fehlgeschlagen."); return; }
+      const pdfBlob = await res.blob();
+      download("fluchtplan.pdf", "application/pdf", pdfBlob);
+    }, "image/jpeg", 0.92);
+  };
+  img.src = url;
+});
+
 function download(name, type, data){
   const a = document.createElement("a");
   const blob = data instanceof Blob ? data : new Blob([data], { type });
@@ -213,17 +249,34 @@ function collectPlanContext(){
     hasNorthArrow: $("#showNorth").checked,
     hasYouAreHere: $("#showYouAreHere").checked,
     siteContext: $("#siteContext").value,
+    legendLang: $("#legendLang").value,
     symbols: Array.from(symbolsGroup.querySelectorAll("g")).map(g => {
       const t = g.getAttribute("transform");
-      const m = /translate\\(([-0-9.]+),([-0-9.]+)\\)/.exec(t);
+      const m = /translate\(([-0-9.]+),([-0-9.]+)\)/.exec(t);
       const xy = m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : { x: 0, y: 0 };
-      // Code aus innerem Text (Fallback) oder aus data-attr
-      const textEl = g.querySelector("text");
-      const code = textEl ? textEl.textContent.trim() : (g.getAttribute("data-code") || "E001");
+      const code = g.getAttribute("data-code") || "E001";
       return { code, ...xy };
     })
   };
 }
+
+// Turnstile: Token lesen
+function getTurnstileToken(){
+  const input = document.querySelector('input[name="cf-turnstile-response"]');
+  return input ? input.value : "";
+}
+
+// Sitzung starten (Turnstile + Rolle -> Durable Object)
+$("#sessionStartBtn").addEventListener("click", async () => {
+  const role = $("#roleSelect").value || "viewer";
+  const token = getTurnstileToken();
+  const res = await fetch("/api/session/start", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role, turnstileToken: token })
+  });
+  const json = await res.json();
+  $("#sessionInfo").textContent = JSON.stringify(json, null, 2);
+});
 
 // Entwürfe (KV + D1)
 $("#saveDraftBtn").addEventListener("click", async () => {
@@ -242,5 +295,3 @@ $("#listDraftsBtn").addEventListener("click", async () => {
   const list = await res.json();
   $("#draftsList").textContent = JSON.stringify(list, null, 2);
 });
-
-// Hilfsfunktionen Ende
