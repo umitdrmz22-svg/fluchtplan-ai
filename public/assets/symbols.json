@@ -9,7 +9,7 @@
   ],
   "fire": [
     { "code": "F001", "label": "Feuerlöscher" },
-    { "code": "F002", "label": "Brandmelder / Handfeuermelder" },
+    { "code": "F002", "label": "Handfeuermelder" },
     { "code": "F004", "label": "Feuerwehrschlauch" }
   ],
   "warning": [
