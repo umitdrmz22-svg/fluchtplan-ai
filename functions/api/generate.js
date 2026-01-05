@@ -1,59 +1,47 @@
 
 export async function onRequestPost(context) {
   const { env, request } = context;
-  const body = await request.json();
-  const { task, context: payload } = body || {};
+  const { task, context: payload } = await request.json();
 
-  // Modeller: hızlı, çok dilli diyalog için Llama 3.1 8B (fast)
-  const model = "@cf/meta/llama-3.1-8b-instruct-fast";
+  const model = "@cf/meta/llama-3.1-8b-instruct-fast"; // gutes P/L-Verhältnis
 
   if (task === "layout") {
     const prompt = `
-Sen bir iş sağlığı ve güvenliği uzmanı ve DIN ISO 23601 / ISO 7010 uyumluluk kontrol aracısın.
-Verilen bağlamdan kaçış ve kurtarma planı için aşağıdaki JSON şemasına tam uyan öneriler üret:
+Du bist Fachkraft für Arbeitssicherheit. Erzeuge Vorschläge für einen Flucht- und Rettungsplan gemäß DIN ISO 23601 (A3, weißer Hintergrund, Legende, Nordpfeil, „Sie sind hier“) mit ISO 7010 Zeichen (E/F/W/M).
+Gib ausschließlich folgendes JSON zurück:
 {
-  "suggestedSymbols": [ { "code": "E001", "x": 100, "y": 120 }, ... ],
-  "notes": [ "Fluchtwege klar und durchgehend markieren", "Sammelstelle E007 ekleyin" ],
+  "suggestedSymbols": [ { "code": "E001", "x": 120, "y": 180 } ],
+  "notes": [ "Fluchtwege klar markieren", "Sammelstelle (E007) ergänzen" ],
   "legendItems": [ "Rettungszeichen", "Brandbekämpfung", "Warnzeichen", "Gebotszeichen" ]
 }
-Kısıtlar:
-- Semboller ISO 7010 kodları olmalı (E/F/W/M serileri).
-- Konumlar SVG piksel koordinatı (viewBox 1400x1000).
-- A3, beyaz arka plan, “Nordpfeil” ve “Sie sind hier” işaretinin bulunması.
-- Yazı metni yoksa notlara ekle.
-Bağlam:
-${JSON.stringify(payload)}
-Yanıtı YALNIZCA yukarıdaki JSON yapısı ile ver.
-`;
+Kontext: ${JSON.stringify(payload)}
+Nur JSON, keine Erklärungen.`;
 
     const aiRes = await env.AI.run(model, { prompt, max_tokens: 600 });
-    // Çıktı düzeltme: güvenli parse
     let data = {};
-    try { data = JSON.parse(aiRes); } catch { data = { suggestedSymbols: [], notes: ["AI yanıtı parse edilemedi."] }; }
+    try { data = JSON.parse(aiRes); } catch { data = { suggestedSymbols: [], notes: ["AI‑Antwort nicht auswertbar"], legendItems: [] }; }
     return json(data);
   }
 
   if (task === "texts") {
     const prompt = `
-DIN ISO 23601 uyumlu “Verhaltensregeln” metinlerini oluştur.
-Çıktı şeması:
+Erstelle knappe Verhaltensregeln (Deutsch) gemäß gängiger Praxis für DIN ISO 23601‑Pläne.
+Nur JSON zurückgeben:
 {
-  "brandfall": [ "Ruhe bewahren", "Alarm auslösen", "In Sicherheit bringen", "Feuerwehr 112 rufen (5W-Fragen)", "Brand bekämpfen: nur Entstehungsbrand" ],
-  "unfall": [ "Erste Hilfe leisten", "Gefahrbereich sichern", "Notruf 112 (5W-Fragen)", "Ersthelfer informieren", "Meldung und Dokumentation" ]
+  "brandfall": ["Ruhe bewahren","Alarm auslösen","In Sicherheit begeben","Feuerwehr 112 (5‑W‑Fragen)","Entstehungsbrand nur bei eigener Sicherheit bekämpfen"],
+  "unfall": ["Erste Hilfe leisten","Gefahrbereich sichern","Notruf 112 (5‑W‑Fragen)","Ersthelfer informieren","Ereignis melden und dokumentieren"]
 }
-Metinleri Almanca kısa madde şeklinde ver; ISO 7010 işaretleriyle uyum referansı ekleme.
-Bağlam: ${JSON.stringify(payload)}
-YALNIZCA JSON ver.
-`;
+Kontext: ${JSON.stringify(payload)}`;
     const aiRes = await env.AI.run(model, { prompt, max_tokens: 400 });
     let data = {};
     try { data = JSON.parse(aiRes); } catch { data = { brandfall: [], unfall: [] }; }
     return json(data);
   }
 
-  return json({ error: "Unknown task" }, 400);
+  return json({ error: "Unbekannte Aufgabe" }, 400);
 }
 
 function json(obj, status=200){
   return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
 }
+``
