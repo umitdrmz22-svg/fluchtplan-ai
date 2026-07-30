@@ -16,4 +16,3 @@ export async function onRequestGet({ env, params }) {
     return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
   }
 }
-``

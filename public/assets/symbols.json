@@ -1,16 +1,17 @@
 
 {
   "rescue": [
-    { "code": "E001", "label": "Notausgang (Fluchtweg)" },
-    { "code": "E002", "label": "Richtung: Links" },
-    { "code": "E003", "label": "Richtung: Rechts" },
-    { "code": "E004", "label": "Erste Hilfe" },
+    { "code": "E001", "label": "Notausgang links" },
+    { "code": "E002", "label": "Notausgang rechts" },
+    { "code": "E003", "label": "Erste Hilfe" },
+    { "code": "E004", "label": "Notruftelefon" },
     { "code": "E007", "label": "Sammelstelle" }
   ],
   "fire": [
     { "code": "F001", "label": "Feuerlöscher" },
-    { "code": "F002", "label": "Handfeuermelder" },
-    { "code": "F004", "label": "Feuerwehrschlauch" }
+    { "code": "F002", "label": "Löschschlauch" },
+    { "code": "F004", "label": "Mittel und Geräte zur Brandbekämpfung" },
+    { "code": "F005", "label": "Brandmelder" }
   ],
   "warning": [
     { "code": "W001", "label": "Allgemeine Warnung" },

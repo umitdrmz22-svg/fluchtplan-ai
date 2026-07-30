@@ -1,0 +1,37 @@
+name: Anwendung auf GitHub Pages veröffentlichen
+
+on:
+  push:
+    branches: ["main", "master", "work"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  bereitstellen:
+    environment:
+      name: github-pages
+      url: ${{ steps.veroeffentlichung.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Projekt abrufen
+        uses: actions/checkout@v4
+
+      - name: GitHub Pages einrichten
+        uses: actions/configure-pages@v5
+
+      - name: Anwendungsdateien verpacken
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Anwendung veröffentlichen
+        id: veroeffentlichung
+        uses: actions/deploy-pages@v4

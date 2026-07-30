@@ -3,39 +3,77 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <title>Flucht- und Rettungsplan – AI Ersteller (DIN ISO 23601, ISO 7010)</title>
+  <title>Flucht- und Rettungsplan – KI-Ersteller (DIN ISO 23601, ISO 7010)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Browserbasierter Flucht- und Rettungsplan-Ersteller mit CAD-Zeichenbereich, ISO 7010-Symbolen, AI-Unterstützung und Entwurfsverwaltung (KV/D1).">
+  <meta name="description" content="Browserbasierter Flucht- und Rettungsplan-Ersteller mit CAD-Zeichenbereich, ISO-7010-Symbolen, KI-Unterstützung und Entwurfsverwaltung.">
   <!-- Optional: Turnstile (nur für serverseitige Endpunkte erforderlich) -->
   <!-- <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script> -->
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
-  <header>
-    <h1>Flucht- und Rettungsplan – AI Ersteller</h1>
-    <p class="subtitle">DIN ISO 23601 konform, ISO 7010 Symbole, CAD‑Zeichnung, Speicherung in KV/D1.</p>
+  <header class="app-header">
+    <div class="brand-mark" aria-hidden="true">FP</div>
+    <div>
+      <h1>Fluchtplan-Ersteller</h1>
+      <p class="subtitle">Flucht- und Rettungspläne direkt im Unternehmen erstellen</p>
+    </div>
+    <div class="header-status"><span></span> Entwurf wird automatisch gesichert</div>
   </header>
 
   <main>
-    <!-- 1) Entwürfe -->
-    <section class="panel">
-      <h2>1) Entwürfe verwalten</h2>
-      <div class="row">
-        <div class="tool">
-          <label for="draftTitle">Entwurfstitel:</label>
-          <input id="draftTitle" type="text" placeholder="z. B. EG - Produktion Nord" />
-        </div>
-        <div class="tool">
-          <button id="saveDraftBtn">Entwurf speichern</button>
-          <button id="listDraftsBtn">Entwürfe laden</button>
-        </div>
+    <section class="welcome">
+      <div>
+        <span class="eyebrow">Planungsassistent</span>
+        <h2>Vom Grundriss zum fertigen Fluchtplan</h2>
+        <p>Hinterlegen Sie die Gebäudedaten, zeichnen oder laden Sie den Grundriss und ergänzen Sie anschließend Fluchtwege und Sicherheitszeichen.</p>
       </div>
-      <div id="draftsList" class="code" aria-live="polite"></div>
+      <ol class="workflow" aria-label="Arbeitsschritte">
+        <li class="active"><span>1</span> Projektdaten</li>
+        <li><span>2</span> Grundriss</li>
+        <li><span>3</span> Sicherheit</li>
+        <li><span>4</span> Prüfen &amp; Export</li>
+      </ol>
     </section>
 
-    <!-- 2) Grundriss: Datei laden (opsiyonel) -->
+    <section class="panel project-panel">
+      <div class="section-heading">
+        <span class="step-number">1</span>
+        <div><h2>Projekt- und Gebäudedaten</h2><p>Diese Angaben ordnen den Plan eindeutig Ihrem Unternehmen und Standort zu.</p></div>
+      </div>
+      <div class="form-grid">
+        <label>Unternehmen <input id="companyName" type="text" placeholder="z. B. Musterwerk GmbH" autocomplete="organization"></label>
+        <label>Standort / Anschrift <input id="siteAddress" type="text" placeholder="Straße, PLZ Ort" autocomplete="street-address"></label>
+        <label>Gebäude / Bereich <input id="buildingName" type="text" placeholder="z. B. Werk 1, Verwaltung"></label>
+        <label>Etage <input id="floorName" type="text" placeholder="z. B. Erdgeschoss"></label>
+        <label>Verantwortliche Person <input id="responsibleName" type="text" placeholder="Name oder Abteilung"></label>
+        <label>Planbezeichnung <input id="draftTitle" type="text" placeholder="z. B. EG – Produktion Nord"></label>
+        <label>Plannummer <input id="planNumber" type="text" placeholder="z. B. FRP-001"></label>
+        <label>Revisionsstand <input id="revision" type="text" placeholder="z. B. 01"></label>
+        <label>Erstellt / geprüft am <input id="issueDate" type="date"></label>
+        <label>Freigabe durch <input id="approvedBy" type="text" placeholder="Fachkundige Person"></label>
+        <label>Notrufnummer <input id="emergencyNumber" type="text" inputmode="tel" value="112"></label>
+        <label>Sammelstelle <input id="assemblyPoint" type="text" placeholder="Bezeichnung / Lage"></label>
+      </div>
+    </section>
+
+    <!-- 1) Entwürfe -->
     <section class="panel">
-      <h2>2) Grundriss (optional laden)</h2>
+      <div class="section-heading compact">
+        <span class="step-number secondary">↻</span>
+        <div><h2>Entwürfe verwalten</h2><p>Zwischenstand sicher speichern oder einen vorhandenen Plan weiterbearbeiten.</p></div>
+      </div>
+      <div class="row">
+        <div class="tool">
+          <button id="saveDraftBtn" class="primary">Entwurf speichern</button>
+          <button id="listDraftsBtn" class="secondary-button">Gespeicherte Entwürfe anzeigen</button>
+        </div>
+      </div>
+      <div id="draftsList" class="draft-list" aria-live="polite"></div>
+    </section>
+
+    <!-- 2) Grundriss: Datei laden (optional) -->
+    <section class="panel">
+      <div class="section-heading"><span class="step-number">2</span><div><h2>Grundriss vorbereiten</h2><p>Vorhandene Datei importieren oder den Grundriss im Zeichenbereich neu anlegen.</p></div></div>
       <div class="row">
         <div>
           <label for="floorUpload">Grundriss (SVG/PNG) hochladen:</label>
@@ -62,7 +100,7 @@
 
     <!-- 3) CAD‑Zeichenbereich -->
     <section class="panel">
-      <h2>3) Grundriss zeichnen (CAD‑Modus)</h2>
+      <div class="section-heading"><span class="step-number">3</span><div><h2>Grundriss zeichnen</h2><p>Wände, Räume, Türen und Fenster maßstäblich ergänzen.</p></div></div>
 
       <div class="row toolbar">
         <div class="tool">
@@ -74,6 +112,7 @@
           <button class="toolbtn" data-tool="window" title="Fenster (F)">Fenster</button>
           <button class="toolbtn" data-tool="rect" title="Raum Rechteck (R)">Raum</button>
           <button class="toolbtn" data-tool="measure" title="Messen (M)">Messen</button>
+          <button class="toolbtn escape-tool" data-tool="escape" title="Fluchtweg (G)">Fluchtweg</button>
           <button class="toolbtn danger" data-tool="erase" title="Löschen (Entf)">Löschen</button>
           <button id="undoBtn" title="Rückgängig (Strg+Z)">Rückgängig</button>
         </div>
@@ -97,6 +136,7 @@
 
       <div id="canvasWrapper">
         <svg id="planCanvas" viewBox="0 0 1400 1000" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Plan">
+          <defs><marker id="escape-arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth"><path d="M1,1 L11,6 L1,11 Z" fill="#009640" /></marker></defs>
           <rect x="0" y="0" width="1400" height="1000" fill="#ffffff" />
           <g id="floorGroup"></g>
           <g id="drawGrid"></g>
@@ -105,6 +145,7 @@
           <g id="northGroup"></g>
           <g id="youAreHereGroup"></g>
           <g id="legendGroup"></g>
+          <g id="planInfoGroup"></g>
         </svg>
       </div>
       <div class="hint">Tipp: Wände mit zwei Klicks zeichnen (Start/Ende). Türen/Fenster auf eine Wand klicken; Auswahl mit Klick, Verschieben durch Ziehen, Entfernen durch Doppelklick oder Löschen.</div>
@@ -112,7 +153,7 @@
 
     <!-- 4) ISO 7010 Symbole -->
     <section class="panel">
-      <h2>4) Symbole (ISO 7010)</h2>
+      <div class="section-heading"><span class="step-number">4</span><div><h2>Sicherheitszeichen platzieren</h2><p>Normgerechte Zeichen auswählen und anschließend im Plan verschieben.</p></div></div>
       <p class="subtitle">Echte ISO‑7010‑SVGs in <code>public/assets/icons/</code> (Dateiname = Code, z. B. <code>E001.svg</code>).</p>
       <div class="row">
         <div class="tool">
@@ -142,15 +183,15 @@
       </div>
     </section>
 
-    <!-- 5) AI -->
+    <!-- 5) KI-Unterstützung -->
     <section class="panel">
-      <h2>5) AI‑Unterstützung</h2>
+      <div class="section-heading"><span class="step-number">5</span><div><h2>KI-Planungsunterstützung</h2><p>Erhalten Sie Vorschläge auf Grundlage Ihrer betrieblichen Situation.</p></div></div>
       <div class="row">
         <textarea id="siteContext" rows="4" placeholder="Bauabschnitt, Gefährdungen, Besucheranteil, besondere Anforderungen …"></textarea>
       </div>
       <div class="row">
-        <button id="aiSuggestBtn">AI: Symbol‑/Layout‑Vorschläge</button>
-        <button id="aiTextsBtn">AI: Verhaltensregeln (Brandfall/Unfall)</button>
+        <button id="aiSuggestBtn">KI-Vorschläge für Zeichen und Anordnung</button>
+        <button id="aiTextsBtn">KI-Verhaltensregeln für Brand und Unfall</button>
       </div>
       <div class="row">
         <pre id="aiOutput" class="code"></pre>
@@ -159,16 +200,28 @@
 
     <!-- 6) Prüfung & Export -->
     <section class="panel">
-      <h2>6) Prüfung & Export</h2>
+      <div class="section-heading"><span class="step-number">6</span><div><h2>Prüfen &amp; exportieren</h2><p>Vollständigkeit prüfen und den Plan im gewünschten Format ausgeben.</p></div></div>
+      <div class="compliance-box">
+        <h3>Fachliche Abschlusskontrolle</h3>
+        <p>Prüfgrundlage: ArbStättV und ASR A2.3 sowie die Gestaltungs- und Sicherheitszeichenprinzipien aus DIN ISO 23601, DIN EN ISO 7010 und ASR A1.3. Bestätigen Sie die Punkte erst nach einem Abgleich mit dem Gebäude. Die Software ersetzt weder Gefährdungsbeurteilung noch fachkundige Freigabe.</p>
+        <div class="check-grid">
+          <label><input type="checkbox" class="compliance-check" id="checkCurrentFloorplan"> Grundriss, Raumaufteilung und Türen entsprechen dem aktuellen Bestand.</label>
+          <label><input type="checkbox" class="compliance-check" id="checkEscapeRoutes"> Haupt- und Nebenfluchtwege sowie Notausgänge wurden vor Ort geprüft.</label>
+          <label><input type="checkbox" class="compliance-check" id="checkOrientation"> Plan ist aus Blickrichtung des Betrachters dargestellt und „Sie sind hier“ stimmt je Aushangort.</label>
+          <label><input type="checkbox" class="compliance-check" id="checkSafetyEquipment"> Brandmelde-, Lösch- und Erste-Hilfe-Einrichtungen sind vollständig und lagerichtig.</label>
+          <label><input type="checkbox" class="compliance-check" id="checkAssemblyPoint"> Sammelstelle und Verhalten im Brand-/Unfallfall sind betrieblich abgestimmt.</label>
+          <label><input type="checkbox" class="compliance-check" id="checkExpertReview"> Eine fachkundige Person prüft und gibt die Endfassung vor dem Aushang frei.</label>
+        </div>
+      </div>
       <div class="row export">
-        <button id="validateBtn">DIN/ISO prüfen</button>
+        <button id="validateBtn">Normprüfung durchführen</button>
         <button id="exportSVG">SVG exportieren</button>
         <button id="exportPNG">PNG exportieren</button>
-        <button id="exportPDF">PDF (Clientdruck A3)</button>
+        <button id="exportPDF">PDF (Browserdruck A3)</button>
         <button id="exportPDFServer">PDF (Server, A3)</button>
       </div>
       <div class="row">
-        <pre id="validationOutput" class="code"></pre>
+        <div id="validationOutput" class="validation-results" aria-live="polite"></div>
       </div>
     </section>
   </main>

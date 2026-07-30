@@ -9,6 +9,10 @@ const symbolsGroup = $("#symbolsGroup");
 const northGroup = $("#northGroup");
 const youAreHereGroup = $("#youAreHereGroup");
 const legendGroup = $("#legendGroup");
+const planInfoGroup = $("#planInfoGroup");
+const LOCAL_DRAFT_KEY = "fluchtplan-studio-autosave";
+const PROJECT_INPUT_IDS = ["companyName", "siteAddress", "buildingName", "floorName", "responsibleName", "draftTitle", "planNumber", "revision", "issueDate", "approvedBy", "emergencyNumber", "assemblyPoint"];
+const COMPLIANCE_IDS = ["checkCurrentFloorplan", "checkEscapeRoutes", "checkOrientation", "checkSafetyEquipment", "checkAssemblyPoint", "checkExpertReview"];
 
 let symbolsDB = {};
 fetch("./assets/symbols.json")
@@ -115,14 +119,26 @@ $("#floorUpload").addEventListener("change", async (ev) => {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = () => {
-    if (file.type.includes("svg")) floorGroup.innerHTML = reader.result;
-    else {
-      const url = reader.result;
-      floorGroup.innerHTML = `${url}`;
+    if (file.type.includes("svg")) {
+      const parsed = new DOMParser().parseFromString(reader.result, "image/svg+xml");
+      const source = parsed.documentElement;
+      source.setAttribute("width", "1400");
+      source.setAttribute("height", "1000");
+      source.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      floorGroup.replaceChildren(document.importNode(source, true));
+    } else {
+      const image = document.createElementNS("http://www.w3.org/2000/svg", "image");
+      image.setAttribute("href", reader.result);
+      image.setAttribute("width", "1400");
+      image.setAttribute("height", "1000");
+      image.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      floorGroup.replaceChildren(image);
     }
     drawLegend();
+    scheduleAutosave();
   };
-  reader.readAsDataURL(file);
+  if (file.type.includes("svg")) reader.readAsText(file);
+  else reader.readAsDataURL(file);
 });
 
 // === CAD Werkzeugleiste ===
@@ -206,10 +222,10 @@ function onPointerDown(e){
       return;
     }
   }
-  if (state.tool === "wall") {
+  if (state.tool === "wall" || state.tool === "escape") {
     pushUndo();
     const q = snap(p.x, p.y);
-    state.wallPreview = { start: q, end: q };
+    state.wallPreview = { start: q, end: q, mode: state.tool };
     renderPreviews();
     return;
   }
@@ -266,9 +282,10 @@ function onPointerUp(e){
   if (state.wallPreview) {
     const { start, end } = state.wallPreview;
     if (distance(start, end) > 1) {
-      const thkPx = mmToPx(parseFloat(wallThkMm.value || "240"));
-      const id = genId("wall");
-      state.drawing.push({ id, type:"wall", x1:start.x, y1:start.y, x2:end.x, y2:end.y, thk: thkPx });
+      const type = state.wallPreview.mode || "wall";
+      const thkPx = type === "escape" ? 10 : mmToPx(parseFloat(wallThkMm.value || "240"));
+      const id = genId(type);
+      state.drawing.push({ id, type, x1:start.x, y1:start.y, x2:end.x, y2:end.y, thk: thkPx });
     }
     state.wallPreview = null;
     clearPreviews();
@@ -312,6 +329,7 @@ function onKeyDown(e){
   if (e.key.toLowerCase() === "f") setTool("window");
   if (e.key.toLowerCase() === "v") setTool("select");
   if (e.key.toLowerCase() === "m") setTool("measure");
+  if (e.key.toLowerCase() === "g") setTool("escape");
 }
 
 function setTool(name){
@@ -343,7 +361,9 @@ function renderPreviews(){
 
   if (state.wallPreview) {
     const { start, end } = state.wallPreview;
-    const line = lineEl(start.x, start.y, end.x, end.y, "wall", mmToPx(parseFloat(wallThkMm.value||"240")));
+    const escape = state.wallPreview.mode === "escape";
+    const line = lineEl(start.x, start.y, end.x, end.y, escape ? "escape-route" : "wall", escape ? 10 : mmToPx(parseFloat(wallThkMm.value||"240")));
+    if (escape) line.setAttribute("marker-end", "url(#escape-arrow)");
     line.setAttribute("opacity", "0.5");
     prev.appendChild(line);
   }
@@ -370,6 +390,11 @@ function renderDrawing(){
 
     if (elt.type === "wall") {
       node = lineEl(elt.x1, elt.y1, elt.x2, elt.y2, "draw-elt wall", elt.thk || mmToPx(240));
+    }
+
+    if (elt.type === "escape") {
+      node = lineEl(elt.x1, elt.y1, elt.x2, elt.y2, "draw-elt escape-route", elt.thk || 10);
+      node.setAttribute("marker-end", "url(#escape-arrow)");
     }
 
     if (elt.type === "room") {
@@ -426,7 +451,7 @@ function attachInteract(node, elt){
     const dxSvg = dx / (window.devicePixelRatio || 1) * 0.75; // grobe Umrechnung
     const dySvg = dy / (window.devicePixelRatio || 1) * 0.75;
 
-    if (elt.type === "wall") { elt.x1 += dxSvg; elt.y1 += dySvg; elt.x2 += dxSvg; elt.y2 += dySvg; }
+    if (elt.type === "wall" || elt.type === "escape") { elt.x1 += dxSvg; elt.y1 += dySvg; elt.x2 += dxSvg; elt.y2 += dySvg; }
     else if (elt.type === "room") { elt.x += dxSvg; elt.y += dySvg; }
     else if (elt.type === "door" || elt.type === "window") { elt.x += dxSvg; elt.y += dySvg; }
     else if (elt.type === "measure") { elt.x1 += dxSvg; elt.y1 += dySvg; elt.x2 += dxSvg; elt.y2 += dySvg; }
@@ -489,6 +514,11 @@ $("#showYouAreHere").addEventListener("change", (e) => {
       <text x="14" y="5" font-size="12" fill="#111">Sie sind hier</text>
     </g>` : "";
 });
+
+function renderOrientationMarkers() {
+  $("#showNorth").dispatchEvent(new Event("change"));
+  $("#showYouAreHere").dispatchEvent(new Event("change"));
+}
 
 // === ISO 7010 Symbole ===
 async function loadIconSVG(code) {
@@ -558,12 +588,26 @@ $("#aiTextsBtn").addEventListener("click", async () => {
 // === Prüfung & Export ===
 $("#validateBtn").addEventListener("click", async () => {
   const payload = collectPlanContext();
-  const res = await fetch("/api/validate", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  const json = await res.json();
-  $("#validationOutput").textContent = JSON.stringify(json, null, 2);
+  const output = $("#validationOutput");
+  output.innerHTML = '<div class="draft-message">Normprüfung wird durchgeführt …</div>';
+  try {
+    const res = await fetch("/api/validate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error("Prüfung konnte nicht ausgeführt werden.");
+    const result = await res.json();
+    const renderItems = (items, className) => items.map(item => `<li class="${className}">${escapeXml(item)}</li>`).join("");
+    const passed = result.errors.length === 0 && result.warnings.length === 0;
+    output.innerHTML = `
+      <div class="validation-summary ${passed ? "passed" : "attention"}">
+        <strong>${passed ? "Formale Prüfung ohne Befund" : `${result.errors.length} Fehler · ${result.warnings.length} Hinweise`}</strong>
+        <span>${escapeXml(result.disclaimer)}</span>
+      </div>
+      <ul>${renderItems(result.errors, "validation-error")}${renderItems(result.warnings, "validation-warning")}${renderItems(result.passed || [], "validation-pass")}</ul>`;
+  } catch (error) {
+    output.innerHTML = `<div class="validation-summary attention"><strong>Normprüfung fehlgeschlagen</strong><span>${escapeXml(error.message)}</span></div>`;
+  }
 });
 
 $("#exportSVG").addEventListener("click", () => {
@@ -629,6 +673,20 @@ function download(name, type, data){
 // === Planstatus sammeln (Drafts) ===
 function collectPlanContext(){
   return {
+    company: {
+      name: $("#companyName").value.trim(),
+      address: $("#siteAddress").value.trim(),
+      building: $("#buildingName").value.trim(),
+      floor: $("#floorName").value.trim(),
+      responsible: $("#responsibleName").value.trim()
+    },
+    title: $("#draftTitle").value.trim(),
+    planNumber: $("#planNumber").value.trim(),
+    revision: $("#revision").value.trim(),
+    issueDate: $("#issueDate").value,
+    approvedBy: $("#approvedBy").value.trim(),
+    emergencyNumber: $("#emergencyNumber").value.trim(),
+    assemblyPoint: $("#assemblyPoint").value.trim(),
     size: $("#planSize").value,
     scale: $("#scaleInput").value,
     hasNorthArrow: $("#showNorth").checked,
@@ -636,7 +694,8 @@ function collectPlanContext(){
     siteContext: $("#siteContext").value,
     legendLang: $("#legendLang").value,
     drawing: state.drawing, // CAD‑Elemente
-    symbols: Array.from(symbolsGroup.querySelectorAll("g")).map(g => {
+    compliance: Object.fromEntries(COMPLIANCE_IDS.map(id => [id, $(`#${id}`).checked])),
+    symbols: Array.from(symbolsGroup.querySelectorAll(":scope > g[data-code]")).map(g => {
       const t = g.getAttribute("transform");
       const m = /translate\(([-0-9.]+),([-0-9.]+)\)/.exec(t);
       const xy = m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : { x: 0, y: 0 };
@@ -646,19 +705,158 @@ function collectPlanContext(){
   };
 }
 
+function applyPlan(plan = {}) {
+  const company = plan.company || {};
+  $("#companyName").value = company.name || "";
+  $("#siteAddress").value = company.address || "";
+  $("#buildingName").value = company.building || "";
+  $("#floorName").value = company.floor || "";
+  $("#responsibleName").value = company.responsible || "";
+  $("#draftTitle").value = plan.title || "";
+  $("#planNumber").value = plan.planNumber || "";
+  $("#revision").value = plan.revision || "";
+  $("#issueDate").value = plan.issueDate || "";
+  $("#approvedBy").value = plan.approvedBy || "";
+  $("#emergencyNumber").value = plan.emergencyNumber || "112";
+  $("#assemblyPoint").value = plan.assemblyPoint || "";
+  for (const id of COMPLIANCE_IDS) $(`#${id}`).checked = Boolean(plan.compliance?.[id]);
+  if (plan.size) $("#planSize").value = plan.size;
+  if (plan.scale) $("#scaleInput").value = plan.scale;
+  if (plan.legendLang) $("#legendLang").value = plan.legendLang;
+  $("#showNorth").checked = plan.hasNorthArrow !== false;
+  $("#showYouAreHere").checked = plan.hasYouAreHere !== false;
+  $("#siteContext").value = plan.siteContext || "";
+  state.drawing = Array.isArray(plan.drawing) ? plan.drawing : [];
+  renderDrawing();
+  symbolsGroup.innerHTML = "";
+  for (const symbol of plan.symbols || []) drawSymbol(symbol.code, symbol.x, symbol.y);
+  renderOrientationMarkers();
+  drawLegend();
+  drawPlanInfo();
+}
+
+function escapeXml(value) {
+  return String(value || "").replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[character]);
+}
+
+function drawPlanInfo() {
+  const company = escapeXml($("#companyName").value || "Unternehmen");
+  const title = escapeXml($("#draftTitle").value || "Flucht- und Rettungsplan");
+  const location = escapeXml([$("#buildingName").value, $("#floorName").value].filter(Boolean).join(" · "));
+  const meta = escapeXml(`Plan ${$("#planNumber").value || "—"} · Rev. ${$("#revision").value || "—"} · ${$("#issueDate").value || "ohne Datum"}`);
+  const assembly = escapeXml($("#assemblyPoint").value || "nicht eingetragen");
+  const emergency = escapeXml($("#emergencyNumber").value || "112");
+  planInfoGroup.innerHTML = `
+    <g transform="translate(20,842)" class="plan-information">
+      <rect width="1010" height="138" fill="#fff" stroke="#263746" stroke-width="2"/>
+      <line x1="405" y1="0" x2="405" y2="138" stroke="#263746"/>
+      <line x1="705" y1="0" x2="705" y2="138" stroke="#263746"/>
+      <text x="14" y="24" font-size="19" font-weight="700">${title}</text>
+      <text x="14" y="49" font-size="13" font-weight="600">${company}</text>
+      <text x="14" y="69" font-size="12">${location}</text>
+      <text x="14" y="113" font-size="11">${meta}</text>
+      <text x="420" y="21" font-size="13" font-weight="700">Verhalten im Brandfall</text>
+      <text x="420" y="43" font-size="11">1. Ruhe bewahren · Brand melden</text>
+      <text x="420" y="62" font-size="11">2. Gefährdete Personen warnen</text>
+      <text x="420" y="81" font-size="11">3. Gekennzeichneten Fluchtwegen folgen</text>
+      <text x="420" y="100" font-size="11">4. Aufzug nicht benutzen</text>
+      <text x="420" y="119" font-size="11">Notruf: ${emergency}</text>
+      <text x="720" y="21" font-size="13" font-weight="700">Verhalten bei Unfällen</text>
+      <text x="720" y="43" font-size="11">1. Unfallstelle sichern</text>
+      <text x="720" y="62" font-size="11">2. Erste Hilfe leisten</text>
+      <text x="720" y="81" font-size="11">3. Notruf absetzen</text>
+      <text x="720" y="100" font-size="11">4. Rettungskräfte einweisen</text>
+      <text x="720" y="122" font-size="11" font-weight="700">Sammelstelle: ${assembly}</text>
+    </g>`;
+}
+
+let autosaveTimer;
+function scheduleAutosave() {
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => {
+    localStorage.setItem(LOCAL_DRAFT_KEY, JSON.stringify(collectPlanContext()));
+  }, 250);
+}
+
+document.addEventListener("input", (event) => {
+  if (event.target.matches("input, select, textarea")) {
+    scheduleAutosave();
+    if (PROJECT_INPUT_IDS.includes(event.target.id)) drawPlanInfo();
+  }
+});
+canvas.addEventListener("pointerup", scheduleAutosave);
+
+try {
+  const localDraft = JSON.parse(localStorage.getItem(LOCAL_DRAFT_KEY));
+  if (localDraft) applyPlan(localDraft);
+  else renderOrientationMarkers();
+} catch {
+  renderOrientationMarkers();
+}
+drawLegend();
+drawPlanInfo();
+
 // === Entwürfe (KV + D1) ===
 $("#saveDraftBtn").addEventListener("click", async () => {
   const title = $("#draftTitle").value || "Unbenannter Entwurf";
   const payload = collectPlanContext();
-  const res = await fetch("/api/drafts/save", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title, plan: payload })
-  });
-  const json = await res.json();
-  alert(json.message || "Gespeichert.");
+  try {
+    const res = await fetch("/api/drafts/save", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, plan: payload })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.ok) throw new Error(json.error || "Speichern fehlgeschlagen.");
+    scheduleAutosave();
+    alert(json.message || "Entwurf gespeichert.");
+  } catch (error) {
+    alert(`Entwurf konnte nicht gespeichert werden: ${error.message}`);
+  }
 });
 $("#listDraftsBtn").addEventListener("click", async () => {
-  const res = await fetch("/api/drafts/list");
-  const list = await res.json();
-  $("#draftsList").textContent = JSON.stringify(list, null, 2);
+  const container = $("#draftsList");
+  container.innerHTML = '<div class="draft-message">Entwürfe werden geladen …</div>';
+  try {
+    const res = await fetch("/api/drafts/list");
+    if (!res.ok) throw new Error("Entwürfe konnten nicht geladen werden.");
+    const list = await res.json();
+    if (!list.items?.length) {
+      container.innerHTML = '<div class="draft-message">Noch keine gespeicherten Entwürfe vorhanden.</div>';
+      return;
+    }
+    container.innerHTML = "";
+    for (const draft of list.items) {
+      const card = document.createElement("div");
+      card.className = "draft-card";
+      const info = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = draft.title || "Unbenannter Entwurf";
+      const date = document.createElement("small");
+      date.textContent = draft.created_at ? new Date(draft.created_at).toLocaleString("de-DE") : "Gespeicherter Stand";
+      info.append(title, date);
+      const loadButton = document.createElement("button");
+      loadButton.textContent = "Öffnen";
+      loadButton.addEventListener("click", async () => {
+        loadButton.disabled = true;
+        loadButton.textContent = "Lädt …";
+        try {
+          const detailRes = await fetch(`/api/drafts/${encodeURIComponent(draft.id)}`);
+          if (!detailRes.ok) throw new Error();
+          const detail = await detailRes.json();
+          applyPlan(detail.draft.plan);
+          scheduleAutosave();
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        } catch {
+          alert("Der Entwurf konnte nicht geöffnet werden.");
+        } finally {
+          loadButton.disabled = false;
+          loadButton.textContent = "Öffnen";
+        }
+      });
+      card.append(info, loadButton);
+      container.appendChild(card);
+    }
+  } catch (error) {
+    container.innerHTML = `<div class="draft-message">${error.message}</div>`;
+  }
 });
