@@ -1,31 +1,51 @@
+# Fluchtplan Studio
 
-# Flucht- und Rettungsplan – AI Ersteller (Web Tabanlı)
+Fluchtplan Studio ist ein vollständig browserbasierter, regelbasierter Editor für Flucht- und Rettungspläne. Die Anwendung arbeitet ohne künstliche Intelligenz und übermittelt weder Grundrisse noch Projektdaten an einen externen Dienst.
 
-Bu proje, **GitHub + Cloudflare Pages** ile yayınlanan ve **Cloudflare Workers AI** kullanan,
-tarayıcıda çalışan bir **Flucht- und Rettungsplan** oluşturucudur. Kurulum için hiçbir şey indirmeniz gerekmez.
+## Funktionen
 
-## Özellikler
-- SVG/PNG kat planı yükleme ve görselleştirme
-- ISO 7010 kodlu sembolleri tuvale yerleştirme (yer tutucu ikonlar)
-- “Nordpfeil”, “Sie sind hier” işaretleri, efsane/legend
-- AI destekli öneriler (yerleşim JSON’u, davranış metinleri)
-- SVG / PNG dışa aktarma, PDF için tarayıcı yazdırma
+- SVG-, PNG- und JPG-Grundrisse laden
+- Räume und Wände direkt im Plan ergänzen
+- Fluchtwege als durchgehend grüne Wegführung zeichnen
+- Betrachterstandort „Sie sind hier“ setzen
+- Rettungs- und Brandschutzzeichen aus dem Downloadbereich der BGHM platzieren
+- Verhaltensregeln für Brandfall und Unfall bearbeiten
+- A3-Plan mit Legende, Planangaben und Revisionsstand erstellen
+- Projekte lokal sichern und als `.frp.json` wieder öffnen
+- Regelbasierter Norm-Check mit Pflichtabweichungen und Hinweisen
+- SVG-Ausgabe sowie A3-PDF über den Druckdialog
 
-## Hızlı Başlangıç
-1. GitHub’da yeni repo oluşturun, bu dosyaları ekleyin.
-2. Cloudflare Pages → **Connect to Git** ile repo’yu bağlayın → **Save and Deploy**.  
-3. Workers AI’ı açın, proje **Secrets** kısmına `AI_API_TOKEN` ve `CF_ACCOUNT_ID` girin.
-4. Yayın adresine gidin; `public/index.html` arayüzünü kullanın.
+## Fachliche Grundlagen
 
-## Uyumluluk
-- Tasarım **DIN ISO 23601** gerekliliklerine dayanır: A3, beyaz arka plan, ortak düzen, kuzey oku, konuma göre yönlendirme, efsane ve davranış talimatları vb.  
-- Semboller **ISO 7010** kategorilerine (E/F/W/M) uygundur; ikonlar yer tutucudur. Resmi vektörleri lisanslı bir kaynaktan ekleyiniz.
+Die Prüflogik orientiert sich insbesondere an:
 
-> Kaynaklar:
-> - Cloudflare Pages Git bağlantısı ve özellikler.  
-> - Workers AI genel bakış ve modeller.  
-> - DIN ISO 23601 tasarım rehberi (fluchtplan24, Baunormenlexikon).  
-> - ISO 7010 standardı açıklaması.  
+- [§ 4 Abs. 4 Arbeitsstättenverordnung](https://www.gesetze-im-internet.de/arbst_ttv_2004/__4.html)
+- [ASR A2.3 „Fluchtwege und Notausgänge“](https://www.baua.de/DE/Angebote/Regelwerk/ASR/ASR-A2-3)
+- [ASR A1.3 „Sicherheits- und Gesundheitsschutzkennzeichnung“](https://www.baua.de/DE/Angebote/Regelwerk/ASR/ASR-A1-3)
+- DIN ISO 23601:2021-11 „Sicherheitskennzeichnung – Flucht- und Rettungspläne“
+- DIN EN ISO 7010 einschließlich der in Deutschland geltenden Änderungen
+- [BGN-Praxishilfe zum Erstellen von Flucht- und Rettungsplänen](https://bgn-branchenwissen.de/organisation-des-arbeitsschutzes/organisation-im-unternehmen/flucht-und-rettungsplan-erstellen)
 
-## Uyarı
-Nihai planlar, yerel mevzuat ve denetim otoriteleri çerçevesinde **yetkin kişi** tarafından gözden geçirilmeli ve onaylanmalıdır.
+Die verwendeten Sicherheitszeichen stammen aus dem offiziellen [BGHM-Downloadbereich für Sicherheitszeichen](https://www.bghm.de/arbeitsschuetzer/praxishilfen/sicherheitszeichen).
+
+Ergänzend wurden die fachlichen Übersichten von [BauNetz Wissen](https://www.baunetzwissen.de/brandschutz/fachwissen/organisatorischer-bs/flucht--und-rettungsplan-3188833) und [Feuerwehrplan-erstellen.de](https://feuerwehrplan-erstellen.de/flucht-und-rettungsplan.html) berücksichtigt. Bei Abweichungen sind die Rechtsvorschrift, die Technischen Regeln und die aktuelle Normfassung maßgebend.
+
+## Rechtlicher Hinweis
+
+Der digitale Norm-Check ist eine strukturierte Vollständigkeits- und Plausibilitätskontrolle. Er stellt keine Zertifizierung oder Konformitätsbescheinigung dar. Die örtliche Situation, das Brandschutzkonzept, die Gefährdungsbeurteilung, bauordnungsrechtliche Anforderungen und gegebenenfalls behördliche Vorgaben müssen vor Freigabe fachkundig geprüft werden.
+
+## Veröffentlichung
+
+Die GitHub-Actions-Datei `.github/workflows/pages.yml` testet die Prüflogik und veröffentlicht den Inhalt des Ordners `public` automatisch auf GitHub Pages.
+
+Lokaler Start:
+
+```bash
+python3 -m http.server 8080 --directory public
+```
+
+Tests:
+
+```bash
+node tests/rules.test.js
+```

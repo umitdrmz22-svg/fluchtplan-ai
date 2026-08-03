@@ -1,664 +1,872 @@
+"use strict";
 
-// === Hilfsfunktionen & Referenzen ===
-const $ = (sel) => document.querySelector(sel);
-const canvas = $("#planCanvas");
-const floorGroup = $("#floorGroup");
-const drawGrid = $("#drawGrid");
-const drawGroup = $("#drawGroup");
-const symbolsGroup = $("#symbolsGroup");
-const northGroup = $("#northGroup");
-const youAreHereGroup = $("#youAreHereGroup");
-const legendGroup = $("#legendGroup");
+const $ = (selector, scope = document) => scope.querySelector(selector);
+const $$ = (selector, scope = document) => Array.from(scope.querySelectorAll(selector));
+const SVG_NS = "http://www.w3.org/2000/svg";
+const STORAGE_KEY = "fluchtplan-studio-v2";
 
-let symbolsDB = {};
-fetch("./assets/symbols.json")
-  .then(r => r.json())
-  .then(json => {
-    symbolsDB = json;
-    fillSelect("#rescueSignSelect", json.rescue);
-    fillSelect("#fireSignSelect", json.fire);
-    fillSelect("#warnSignSelect", json.warning);
-    fillSelect("#mandSignSelect", json.mandatory);
-  });
+const SIGNS = [
+  { code: "E001", label: "Rettungsweg / Notausgang links", category: "rescue" },
+  { code: "E002", label: "Rettungsweg / Notausgang rechts", category: "rescue" },
+  { code: "E003", label: "Erste Hilfe", category: "rescue" },
+  { code: "E004", label: "Notruftelefon", category: "rescue" },
+  { code: "E007", label: "Sammelstelle", category: "rescue" },
+  { code: "E010", label: "Automatisierter Defibrillator", category: "rescue" },
+  { code: "E011", label: "Augenspüleinrichtung", category: "rescue" },
+  { code: "E012", label: "Notdusche", category: "rescue" },
+  { code: "E013", label: "Krankentrage", category: "rescue" },
+  { code: "E016", label: "Notausstieg mit Fluchtleiter", category: "rescue" },
+  { code: "E017", label: "Rettungsausstieg", category: "rescue" },
+  { code: "F001", label: "Feuerlöscher", category: "fire" },
+  { code: "F002", label: "Löschschlauch", category: "fire" },
+  { code: "F003", label: "Feuerleiter", category: "fire" },
+  { code: "F004", label: "Mittel zur Brandbekämpfung", category: "fire" },
+  { code: "F005", label: "Brandmelder", category: "fire" },
+  { code: "F006", label: "Brandmeldetelefon", category: "fire" }
+].map((item) => ({ ...item, src: `assets/signs/${item.code}.jpg` }));
 
-function fillSelect(id, arr){
-  const el = $(id);
-  arr.forEach(s => {
-    const opt = document.createElement("option");
-    opt.value = s.code; opt.textContent = `${s.code} — ${s.label}`;
-    el.appendChild(opt);
-  });
+const DEFAULT_FIRE_TEXT = `Ruhe bewahren.\nBrand melden: Notruf 112 und betriebliche Alarmierung auslösen.\nGefährdete Personen warnen und hilfsbedürftige Personen unterstützen.\nGekennzeichneten Fluchtwegen folgen; Aufzüge nicht benutzen.\nSammelstelle aufsuchen und auf weitere Anweisungen warten.\nLöschversuch nur ohne Eigengefährdung unternehmen.`;
+const DEFAULT_ACCIDENT_TEXT = `Ruhe bewahren und Unfallstelle sichern.\nErste Hilfe leisten und Ersthelfer verständigen.\nNotruf 112 absetzen: Wo, was, wie viele, welche Verletzungen; Rückfragen abwarten.\nRettungsdienst einweisen und Zufahrten freihalten.\nEreignis unverzüglich betrieblich melden und dokumentieren.`;
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
 }
 
-// === Maßstab / Raster ===
-// Wir nehmen eine feste viewBox 1400 x 1000 px ≈ A3 quer (420 x 297 mm).
-const PX_PER_MM_X = 1400 / 420;  // ≈ 3.333
-const PX_PER_MM_Y = 1000 / 297;  // ≈ 3.367
-const PX_PER_MM = (PX_PER_MM_X + PX_PER_MM_Y) / 2; // ≈ 3.35 px/mm
+function nextYear() {
+  const date = new Date();
+  date.setFullYear(date.getFullYear() + 1);
+  return date.toISOString().slice(0, 10);
+}
 
-function mmToPx(mm) { return mm * PX_PER_MM; }
-function pxToMm(px) { return px / PX_PER_MM; }
+function defaultState() {
+  return {
+    version: 2,
+    meta: {
+      company: "",
+      building: "",
+      floor: "",
+      planNumber: "",
+      title: "Flucht- und Rettungsplan",
+      author: "",
+      created: today(),
+      revision: "Rev. 1",
+      nextReview: nextYear(),
+      emergencyNumber: "Notruf 112"
+    },
+    settings: {
+      scale: "1:250",
+      format: "A3",
+      a4Reason: "",
+      rotation: "0",
+      opacity: 82,
+      partialArea: false,
+      whiteBackground: true,
+      showLegend: true,
+      showNorth: true,
+      safetyLighting: "nein"
+    },
+    facilities: { firstAid: true, fire: true, alarm: true, assembly: true },
+    confirmations: {
+      siteOriented: false,
+      lowLightUsable: false,
+      facilitiesChecked: false,
+      currentState: false,
+      professionalReview: false
+    },
+    behavior: { fire: DEFAULT_FIRE_TEXT, accident: DEFAULT_ACCIDENT_TEXT },
+    baseImage: null,
+    overviewImage: null,
+    elements: []
+  };
+}
 
-// === Zeichenstatus ===
-const state = {
-  tool: "select",
-  drawing: [],            // [{type, ...}], z.B. wall, door, window, room, measure
-  selection: null,
-  isPanning: false,
-  panStart: null,
-  wallPreview: null,
-  measurePreview: null,
-  undoStack: []
+let state = defaultState();
+let activeTool = "select";
+let selectedId = null;
+let undoStack = [];
+let pointerAction = null;
+let currentRoute = [];
+let lastResult = null;
+let saveTimer = null;
+
+const canvas = $("#planCanvas");
+const layers = {
+  base: $("#baseLayer"),
+  drawing: $("#drawingLayer"),
+  route: $("#routeLayer"),
+  symbol: $("#symbolLayer"),
+  overlay: $("#overlayLayer"),
+  preview: $("#previewLayer")
 };
 
+function getPath(path) {
+  return path.split(".").reduce((value, key) => value && value[key], state);
+}
+
+function setPath(path, value) {
+  const keys = path.split(".");
+  let target = state;
+  keys.slice(0, -1).forEach((key) => {
+    if (!target[key]) target[key] = {};
+    target = target[key];
+  });
+  target[keys.at(-1)] = value;
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function uid(prefix) {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function svgElement(name, attrs = {}) {
+  const element = document.createElementNS(SVG_NS, name);
+  Object.entries(attrs).forEach(([key, value]) => element.setAttribute(key, String(value)));
+  return element;
+}
+
+function formatDate(value) {
+  if (!value) return "–";
+  const parts = value.split("-");
+  return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : value;
+}
+
+function lines(value) {
+  return String(value || "").split(/\n+/).map((line) => line.trim()).filter(Boolean);
+}
+
 function pushUndo() {
-  // flache Kopie des Zustands für Undo
-  state.undoStack.push(JSON.stringify(state.drawing));
-  if (state.undoStack.length > 50) state.undoStack.shift();
-}
-$("#undoBtn").addEventListener("click", () => {
-  if (state.undoStack.length) {
-    state.drawing = JSON.parse(state.undoStack.pop());
-    renderDrawing();
-  }
-});
-window.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
-    $("#undoBtn").click();
-    e.preventDefault();
-  }
-});
-
-// === Raster & Snap ===
-const gridToggle = $("#gridToggle");
-const snapToggle = $("#snapToggle");
-const gridSizeMmInput = $("#gridSizeMm");
-
-function renderGrid() {
-  drawGrid.innerHTML = "";
-  if (!gridToggle.checked) return;
-  const stepPx = mmToPx(parseInt(gridSizeMmInput.value || "500", 10));
-  for (let x = 0; x <= 1400; x += stepPx) {
-    const line = lineEl(x, 0, x, 1000, "grid-line");
-    drawGrid.appendChild(line);
-  }
-  for (let y = 0; y <= 1000; y += stepPx) {
-    const line = lineEl(0, y, 1400, y, "grid-line");
-    drawGrid.appendChild(line);
-  }
-  // Achsen (0)
-  drawGrid.appendChild(lineEl(0, 0, 1400, 0, "grid-axis"));
-  drawGrid.appendChild(lineEl(0, 0, 0, 1000, "grid-axis"));
+  undoStack.push(clone({ elements: state.elements, baseImage: state.baseImage, overviewImage: state.overviewImage }));
+  if (undoStack.length > 30) undoStack.shift();
 }
 
-gridToggle.addEventListener("change", renderGrid);
-gridSizeMmInput.addEventListener("change", () => { renderGrid(); });
-renderGrid();
-
-function snap(x,y) {
-  if (!snapToggle.checked) return {x,y};
-  const stepPx = mmToPx(parseInt(gridSizeMmInput.value || "500", 10));
-  const sx = Math.round(x / stepPx) * stepPx;
-  const sy = Math.round(y / stepPx) * stepPx;
-  return { x: sx, y: sy };
+function undo() {
+  const previous = undoStack.pop();
+  if (!previous) return;
+  state.elements = previous.elements;
+  state.baseImage = previous.baseImage;
+  state.overviewImage = previous.overviewImage;
+  selectedId = null;
+  currentRoute = [];
+  invalidateCheck();
+  renderAll();
 }
 
-// === Datei laden (optional) ===
-$("#loadSample").addEventListener("click", async () => {
-  const res = await fetch("./samples/demo-floor.svg");
-  const svgText = await res.text();
-  floorGroup.innerHTML = svgText;
-  drawLegend();
-});
-$("#floorUpload").addEventListener("change", async (ev) => {
-  const file = ev.target.files[0];
+function bindControls() {
+  $$('[data-path]').forEach((control) => {
+    const eventName = control.matches("select,input[type=checkbox],input[type=date]") ? "change" : "input";
+    control.addEventListener(eventName, () => {
+      const value = control.type === "checkbox" ? control.checked : control.value;
+      setPath(control.dataset.path, value);
+      if (control.dataset.path === "settings.opacity") state.settings.opacity = Number(value);
+      invalidateCheck();
+      updateConditionals();
+      renderAll();
+      scheduleLocalSave();
+    });
+  });
+
+  $("#opacityRange").addEventListener("input", (event) => {
+    state.settings.opacity = Number(event.target.value);
+    invalidateCheck();
+    renderPlan();
+    scheduleLocalSave();
+  });
+
+  $$(".step-nav button").forEach((button) => button.addEventListener("click", () => showSection(button.dataset.target)));
+  $$(".tool[data-tool]").forEach((button) => button.addEventListener("click", () => setTool(button.dataset.tool)));
+  $("#finishRouteBtn").addEventListener("click", finishRoute);
+  $("#undoBtn").addEventListener("click", undo);
+  $("#deleteBtn").addEventListener("click", deleteSelected);
+  $("#addLabelBtn").addEventListener("click", addLabel);
+  $("#newPlanBtn").addEventListener("click", newPlan);
+  $("#demoBtn").addEventListener("click", loadDemo);
+  $("#checkBtn").addEventListener("click", runNormCheck);
+  $("#finalCheckBtn").addEventListener("click", runNormCheck);
+  $("#saveBtn").addEventListener("click", () => $("#saveDialog").showModal());
+  $("#downloadProjectBtn").addEventListener("click", downloadProject);
+  $("#projectUpload").addEventListener("change", (event) => importProject(event.target.files[0]));
+  $("#svgBtn").addEventListener("click", exportSvg);
+  $("#printBtn").addEventListener("click", printPlan);
+  $("#floorSelectBtn").addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    $("#floorUpload").click();
+  });
+  $("#floorUpload").addEventListener("change", (event) => loadImageFile(event.target.files[0], "baseImage"));
+  $("#overviewUpload").addEventListener("change", (event) => loadImageFile(event.target.files[0], "overviewImage"));
+  configureDropZone();
+
+  canvas.addEventListener("pointerdown", onPointerDown);
+  canvas.addEventListener("pointermove", onPointerMove);
+  canvas.addEventListener("pointerup", onPointerUp);
+  canvas.addEventListener("pointercancel", onPointerUp);
+  canvas.addEventListener("dblclick", (event) => {
+    if (activeTool === "route") {
+      event.preventDefault();
+      finishRoute();
+    }
+  });
+  window.addEventListener("keydown", onKeyDown);
+}
+
+function applyStateToControls() {
+  $$('[data-path]').forEach((control) => {
+    const value = getPath(control.dataset.path);
+    if (control.type === "checkbox") control.checked = Boolean(value);
+    else control.value = value == null ? "" : value;
+  });
+  $("#opacityRange").value = state.settings.opacity ?? 82;
+  updateConditionals();
+}
+
+function updateConditionals() {
+  $("#a4ReasonField").classList.toggle("visible", state.settings.format === "A4");
+  $("#overviewField").classList.toggle("visible", Boolean(state.settings.partialArea));
+  $("#lowLightField").classList.toggle("visible", state.settings.safetyLighting === "ja");
+}
+
+function showSection(id) {
+  $$(".editor-section").forEach((section) => section.classList.toggle("active", section.id === id));
+  $$(".step-nav button").forEach((button) => button.classList.toggle("active", button.dataset.target === id));
+  $("#normResults").classList.remove("visible");
+  $("#editorPanel")?.scrollTo?.({ top: 0, behavior: "smooth" });
+}
+
+function renderSignLibrary() {
+  const build = (category, container) => {
+    SIGNS.filter((sign) => sign.category === category).forEach((sign) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "sign-card";
+      button.title = `${sign.code} – ${sign.label} in der Planmitte einsetzen`;
+      const image = document.createElement("img");
+      image.src = sign.src;
+      image.alt = sign.label;
+      const code = document.createElement("b");
+      code.textContent = sign.code;
+      const label = document.createElement("small");
+      label.textContent = sign.label;
+      button.append(image, code, label);
+      button.addEventListener("click", () => addSymbol(sign.code));
+      container.appendChild(button);
+    });
+  };
+  build("rescue", $("#rescueSigns"));
+  build("fire", $("#fireSigns"));
+}
+
+function setTool(tool) {
+  if (activeTool === "route" && tool !== "route") finishRoute();
+  activeTool = tool;
+  canvas.dataset.tool = tool;
+  $$(".tool[data-tool]").forEach((button) => button.classList.toggle("active", button.dataset.tool === tool));
+  const messages = {
+    select: "Element anklicken und ziehen. Ausgewählte Elemente können gelöscht werden.",
+    route: "Fluchtweg Punkt für Punkt anklicken; mit Doppelklick, Enter oder „Weg abschließen“ beenden.",
+    room: "Von einer Raumecke zur gegenüberliegenden Ecke ziehen.",
+    wall: "Wand vom Start- zum Endpunkt ziehen.",
+    location: "Den tatsächlichen Aushangort einmal im Grundriss anklicken."
+  };
+  $("#canvasHint").textContent = messages[tool] || messages.select;
+  renderPlan();
+}
+
+function canvasPoint(event) {
+  const point = canvas.createSVGPoint();
+  point.x = event.clientX;
+  point.y = event.clientY;
+  return point.matrixTransform(canvas.getScreenCTM().inverse());
+}
+
+function onPointerDown(event) {
+  const point = canvasPoint(event);
+  if (activeTool === "select") {
+    const target = event.target.closest("[data-id]");
+    selectedId = target?.dataset.id || null;
+    const item = state.elements.find((element) => element.id === selectedId);
+    if (item && ["symbol", "location", "label"].includes(item.type)) {
+      pushUndo();
+      pointerAction = { type: "move", id: item.id, start: point, origin: { x: item.x, y: item.y } };
+      canvas.setPointerCapture(event.pointerId);
+    }
+    renderPlan();
+    return;
+  }
+
+  if (activeTool === "route") {
+    if (currentRoute.length === 0) pushUndo();
+    currentRoute.push({ x: point.x, y: point.y });
+    renderPlan();
+    return;
+  }
+
+  if (activeTool === "location") {
+    pushUndo();
+    state.elements = state.elements.filter((element) => element.type !== "location");
+    const item = { id: uid("location"), type: "location", x: point.x, y: point.y };
+    state.elements.push(item);
+    selectedId = item.id;
+    setTool("select");
+    changed();
+    return;
+  }
+
+  if (activeTool === "wall" || activeTool === "room") {
+    pushUndo();
+    pointerAction = { type: activeTool, start: point, current: point };
+    canvas.setPointerCapture(event.pointerId);
+    renderPlan();
+  }
+}
+
+function onPointerMove(event) {
+  if (!pointerAction) return;
+  const point = canvasPoint(event);
+  if (pointerAction.type === "move") {
+    const item = state.elements.find((element) => element.id === pointerAction.id);
+    if (item) {
+      item.x = pointerAction.origin.x + point.x - pointerAction.start.x;
+      item.y = pointerAction.origin.y + point.y - pointerAction.start.y;
+    }
+  } else {
+    pointerAction.current = point;
+  }
+  renderPlan();
+}
+
+function onPointerUp(event) {
+  if (!pointerAction) return;
+  const action = pointerAction;
+  pointerAction = null;
+  if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+  if (action.type === "wall") {
+    const dx = action.current.x - action.start.x;
+    const dy = action.current.y - action.start.y;
+    if (Math.hypot(dx, dy) > 12) state.elements.push({ id: uid("wall"), type: "wall", x1: action.start.x, y1: action.start.y, x2: action.current.x, y2: action.current.y });
+  }
+  if (action.type === "room") {
+    const x = Math.min(action.start.x, action.current.x);
+    const y = Math.min(action.start.y, action.current.y);
+    const width = Math.abs(action.current.x - action.start.x);
+    const height = Math.abs(action.current.y - action.start.y);
+    if (width > 20 && height > 20) state.elements.push({ id: uid("room"), type: "room", x, y, width, height });
+  }
+  changed();
+}
+
+function onKeyDown(event) {
+  const editable = event.target.matches("input,textarea,select");
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !editable) {
+    event.preventDefault();
+    undo();
+  }
+  if (event.key === "Enter" && activeTool === "route" && !editable) finishRoute();
+  if ((event.key === "Delete" || event.key === "Backspace") && !editable) deleteSelected();
+  if (event.key === "Escape") {
+    currentRoute = [];
+    pointerAction = null;
+    setTool("select");
+  }
+}
+
+function finishRoute() {
+  if (currentRoute.length >= 2) {
+    const points = currentRoute.filter((point, index, list) => index === 0 || Math.hypot(point.x - list[index - 1].x, point.y - list[index - 1].y) > 4);
+    if (points.length >= 2) state.elements.push({ id: uid("route"), type: "route", points });
+  }
+  currentRoute = [];
+  if (activeTool === "route") setTool("select");
+  changed();
+}
+
+function addSymbol(code) {
+  const same = state.elements.filter((item) => item.type === "symbol").length;
+  pushUndo();
+  const item = { id: uid("symbol"), type: "symbol", code, x: 530 + (same % 5) * 38, y: 330 + (same % 4) * 34 };
+  state.elements.push(item);
+  selectedId = item.id;
+  setTool("select");
+  changed();
+}
+
+function addLabel() {
+  const value = $("#labelText").value.trim();
+  if (!value) {
+    $("#labelText").focus();
+    return;
+  }
+  pushUndo();
+  const item = { id: uid("label"), type: "label", text: value, x: 520, y: 260 };
+  state.elements.push(item);
+  selectedId = item.id;
+  $("#labelText").value = "";
+  setTool("select");
+  changed();
+}
+
+function deleteSelected() {
+  if (!selectedId) return;
+  pushUndo();
+  state.elements = state.elements.filter((item) => item.id !== selectedId);
+  selectedId = null;
+  changed();
+}
+
+function renderAll() {
+  renderPlan();
+  renderDocumentData();
+  updateProgress();
+  updateFileStates();
+}
+
+function renderPlan() {
+  Object.values(layers).forEach((layer) => layer.replaceChildren());
+  renderBase();
+  state.elements.forEach(renderElement);
+  renderOrientation();
+  renderPointerPreview();
+  renderLegend();
+}
+
+function renderBase() {
+  if (state.baseImage?.data) {
+    const image = svgElement("image", { x: 35, y: 28, width: 1130, height: 704, preserveAspectRatio: "xMidYMid meet", opacity: (state.settings.opacity ?? 82) / 100 });
+    image.setAttribute("href", state.baseImage.data);
+    const rotation = Number(state.settings.rotation || 0);
+    if (rotation) image.setAttribute("transform", `rotate(${rotation} 600 380)`);
+    layers.base.appendChild(image);
+  }
+  if (state.settings.partialArea && state.overviewImage?.data) {
+    const box = svgElement("g", { transform: "translate(925 550)", filter: "url(#softShadow)" });
+    box.appendChild(svgElement("rect", { x: 0, y: 0, width: 250, height: 170, rx: 4, fill: "#fff", stroke: "#263d48", "stroke-width": 3 }));
+    const title = svgElement("text", { x: 10, y: 18, "font-size": 12, "font-weight": 800, fill: "#173342" });
+    title.textContent = "Übersicht / Lage im Gebäude";
+    const image = svgElement("image", { x: 8, y: 25, width: 234, height: 137, preserveAspectRatio: "xMidYMid meet" });
+    image.setAttribute("href", state.overviewImage.data);
+    box.append(title, image);
+    layers.overlay.appendChild(box);
+  }
+}
+
+function renderElement(item) {
+  if (item.type === "wall") {
+    const line = svgElement("line", { x1: item.x1, y1: item.y1, x2: item.x2, y2: item.y2, class: `wall-line plan-element${item.id === selectedId ? " selected" : ""}`, "data-id": item.id });
+    layers.drawing.appendChild(line);
+  }
+  if (item.type === "room") {
+    const rect = svgElement("rect", { x: item.x, y: item.y, width: item.width, height: item.height, class: `room-shape plan-element${item.id === selectedId ? " selected" : ""}`, "data-id": item.id });
+    layers.drawing.appendChild(rect);
+  }
+  if (item.type === "route") renderRoute(item.points, item.id, false);
+  if (item.type === "symbol") renderSymbol(item);
+  if (item.type === "location") renderLocation(item);
+  if (item.type === "label") {
+    const label = svgElement("text", { x: item.x, y: item.y, class: `plan-label plan-element${item.id === selectedId ? " selected" : ""}`, "data-id": item.id });
+    label.textContent = item.text;
+    layers.symbol.appendChild(label);
+  }
+}
+
+function renderRoute(points, id, preview) {
+  if (points.length < 2) return;
+  const value = points.map((point) => `${point.x},${point.y}`).join(" ");
+  const route = svgElement("polyline", { points: value, class: `route-line plan-element${id === selectedId ? " selected" : ""}`, "data-id": id || "", opacity: preview ? .55 : 1 });
+  const core = svgElement("polyline", { points: value, class: "route-core" });
+  (preview ? layers.preview : layers.route).append(route, core);
+}
+
+function renderSymbol(item) {
+  const sign = SIGNS.find((entry) => entry.code === item.code);
+  if (!sign) return;
+  const group = svgElement("g", { transform: `translate(${item.x} ${item.y})`, class: `plan-element${item.id === selectedId ? " selected" : ""}`, "data-id": item.id, filter: "url(#softShadow)" });
+  const background = svgElement("rect", { x: -30, y: -30, width: 60, height: 60, rx: 3, fill: "#fff", stroke: "#fff", "stroke-width": 4 });
+  const image = svgElement("image", { x: -27, y: -27, width: 54, height: 54, preserveAspectRatio: "xMidYMid meet" });
+  image.setAttribute("href", sign.src);
+  group.append(background, image);
+  layers.symbol.appendChild(group);
+}
+
+function renderLocation(item) {
+  const group = svgElement("g", { transform: `translate(${item.x} ${item.y})`, class: `location-marker plan-element${item.id === selectedId ? " selected" : ""}`, "data-id": item.id, filter: "url(#softShadow)" });
+  group.appendChild(svgElement("circle", { class: "outer", cx: 0, cy: 0, r: 17 }));
+  group.appendChild(svgElement("circle", { class: "inner", cx: 0, cy: 0, r: 5 }));
+  const label = svgElement("text", { x: 26, y: 6 });
+  label.textContent = "Sie sind hier";
+  group.appendChild(label);
+  layers.symbol.appendChild(group);
+}
+
+function renderOrientation() {
+  if (!state.settings.showNorth) return;
+  const group = svgElement("g", { transform: "translate(1138 68)" });
+  group.appendChild(svgElement("circle", { cx: 0, cy: 0, r: 34, fill: "rgba(255,255,255,.9)", stroke: "#243d48", "stroke-width": 2 }));
+  group.appendChild(svgElement("path", { d: "M0 -26 L10 10 L0 5 L-10 10 Z", fill: "#173b4a" }));
+  const text = svgElement("text", { x: 0, y: 25, "text-anchor": "middle", "font-size": 13, "font-weight": 900, fill: "#173b4a" });
+  text.textContent = "N";
+  group.appendChild(text);
+  layers.overlay.appendChild(group);
+}
+
+function renderPointerPreview() {
+  if (currentRoute.length >= 2) renderRoute(currentRoute, "", true);
+  if (!pointerAction || pointerAction.type === "move") return;
+  if (pointerAction.type === "wall") layers.preview.appendChild(svgElement("line", { x1: pointerAction.start.x, y1: pointerAction.start.y, x2: pointerAction.current.x, y2: pointerAction.current.y, class: "wall-line", opacity: .55 }));
+  if (pointerAction.type === "room") {
+    const x = Math.min(pointerAction.start.x, pointerAction.current.x);
+    const y = Math.min(pointerAction.start.y, pointerAction.current.y);
+    layers.preview.appendChild(svgElement("rect", { x, y, width: Math.abs(pointerAction.current.x - pointerAction.start.x), height: Math.abs(pointerAction.current.y - pointerAction.start.y), class: "room-shape", opacity: .55 }));
+  }
+}
+
+function renderLegend() {
+  const container = $("#legendPreview");
+  container.replaceChildren();
+  if (!state.settings.showLegend) {
+    const hidden = document.createElement("span");
+    hidden.className = "legend-empty";
+    hidden.textContent = "Legende ausgeblendet.";
+    container.appendChild(hidden);
+    return;
+  }
+  const codes = [...new Set(state.elements.filter((item) => item.type === "symbol").map((item) => item.code))];
+  codes.forEach((code) => {
+    const sign = SIGNS.find((item) => item.code === code);
+    if (!sign) return;
+    const item = document.createElement("span");
+    item.className = "legend-item";
+    const image = document.createElement("img");
+    image.src = sign.src;
+    image.alt = "";
+    const label = document.createElement("span");
+    label.textContent = `${sign.code} ${sign.label}`;
+    item.append(image, label);
+    container.appendChild(item);
+  });
+  if (!codes.length) {
+    const empty = document.createElement("span");
+    empty.className = "legend-empty";
+    empty.textContent = "Verwendete Zeichen werden automatisch ergänzt.";
+    container.appendChild(empty);
+  }
+}
+
+function renderDocumentData() {
+  $("#previewTitle").textContent = state.meta.title || "Flucht- und Rettungsplan";
+  $("#previewCompany").textContent = state.meta.company || "–";
+  $("#previewLocation").textContent = [state.meta.building, state.meta.floor].filter(Boolean).join(" · ") || "–";
+  $("#previewNumber").textContent = state.meta.planNumber || "–";
+  $("#previewRevision").textContent = state.meta.revision || "–";
+  $("#scalePreview").textContent = `Maßstab ${state.settings.scale || "–"}`;
+  $("#authorPreview").textContent = `Erstellt durch ${state.meta.author || "–"}`;
+  $("#datePreview").textContent = `Datum ${formatDate(state.meta.created)}`;
+  $("#emergencyPreview").textContent = state.meta.emergencyNumber || "112";
+  renderBehaviorList("#firePreview", state.behavior.fire);
+  renderBehaviorList("#accidentPreview", state.behavior.accident);
+}
+
+function renderBehaviorList(selector, value) {
+  const list = $(selector);
+  list.replaceChildren();
+  lines(value).forEach((line) => {
+    const item = document.createElement("li");
+    item.textContent = line;
+    list.appendChild(item);
+  });
+}
+
+function updateProgress() {
+  const elementTypes = (type) => state.elements.filter((item) => item.type === type).length;
+  const sections = [
+    [state.meta.company, state.meta.building, state.meta.floor, state.meta.planNumber, state.meta.author, state.meta.created].every((value) => String(value || "").trim()),
+    (Boolean(state.baseImage) || elementTypes("wall") + elementTypes("room") >= 2) && state.confirmations.siteOriented,
+    elementTypes("route") > 0 && state.elements.some((item) => item.type === "symbol" && ["E001", "E002", "E016", "E017"].includes(item.code)),
+    lines(state.behavior.fire).length >= 4 && lines(state.behavior.accident).length >= 4 && state.settings.showLegend,
+    state.confirmations.facilitiesChecked && state.confirmations.currentState && state.confirmations.professionalReview
+  ];
+  const done = sections.filter(Boolean).length;
+  const percent = Math.round((done / sections.length) * 100);
+  $("#progressText").textContent = `${done} von 5 Bereichen bearbeitet`;
+  $("#progressPercent").textContent = `${percent} %`;
+  $("#progressBar").style.width = `${percent}%`;
+}
+
+function updateFileStates() {
+  const floor = $("#floorFileState");
+  floor.textContent = state.baseImage ? `Geladen: ${state.baseImage.name}` : "Noch kein Grundriss geladen.";
+  floor.classList.toggle("loaded", Boolean(state.baseImage));
+  $("#overviewFileState").textContent = state.overviewImage ? `Geladen: ${state.overviewImage.name}` : "Noch keine Übersicht geladen.";
+}
+
+function configureDropZone() {
+  const zone = $("#floorDrop");
+  ["dragenter", "dragover"].forEach((name) => zone.addEventListener(name, (event) => {
+    event.preventDefault();
+    zone.classList.add("dragover");
+  }));
+  ["dragleave", "drop"].forEach((name) => zone.addEventListener(name, (event) => {
+    event.preventDefault();
+    zone.classList.remove("dragover");
+  }));
+  zone.addEventListener("drop", (event) => loadImageFile(event.dataTransfer.files[0], "baseImage"));
+}
+
+function loadImageFile(file, target) {
+  if (!file) return;
+  const allowed = ["image/png", "image/jpeg", "image/svg+xml"];
+  if (!allowed.includes(file.type) && !/\.(svg|png|jpe?g)$/i.test(file.name)) {
+    alert("Bitte wählen Sie eine SVG-, PNG- oder JPG-Datei.");
+    return;
+  }
+  if (file.size > 12 * 1024 * 1024) {
+    alert("Die Datei ist größer als 12 MB. Bitte verwenden Sie eine optimierte Planabbildung.");
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    pushUndo();
+    state[target] = { name: file.name, type: file.type, data: reader.result };
+    changed();
+  };
+  reader.readAsDataURL(file);
+}
+
+function changed() {
+  invalidateCheck();
+  renderAll();
+  scheduleLocalSave();
+}
+
+function invalidateCheck() {
+  lastResult = null;
+  $("#printBtn").disabled = true;
+  $("#exportStatus").textContent = "Norm-Check erforderlich";
+  $("#exportDetail").textContent = "Der PDF-Export wird nach erfolgreicher Prüfung freigegeben.";
+  $(".export-bar").classList.remove("ready");
+}
+
+function runNormCheck() {
+  finishRoute();
+  lastResult = window.FluchtplanRules.validatePlan(state);
+  renderNormResults(lastResult);
+  $("#normResults").classList.add("visible");
+  $$(".editor-section").forEach((section) => section.classList.remove("active"));
+  $$(".step-nav button").forEach((button) => button.classList.remove("active"));
+  $("#normResults").scrollIntoView({ behavior: "smooth", block: "start" });
+  $("#printBtn").disabled = !lastResult.ready;
+  if (lastResult.ready) {
+    $("#exportStatus").textContent = "Norm-Check ohne offene Pflichtabweichung";
+    $("#exportDetail").textContent = "Der Plan kann jetzt als A3-PDF gespeichert oder gedruckt werden.";
+    $(".export-bar").classList.add("ready");
+  } else {
+    $("#exportStatus").textContent = `${lastResult.errors} Pflichtabweichung${lastResult.errors === 1 ? "" : "en"} offen`;
+    $("#exportDetail").textContent = "Öffnen Sie den Prüfbericht und ergänzen Sie die fehlenden Angaben.";
+  }
+}
+
+function renderNormResults(result) {
+  const container = $("#normResults");
+  container.replaceChildren();
+  const summary = document.createElement("div");
+  summary.className = `result-summary${result.ready ? " ready" : ""}`;
+  const title = document.createElement("h2");
+  title.textContent = result.ready ? "Norm-Check bestanden" : `${result.errors} Pflichtabweichung${result.errors === 1 ? "" : "en"} gefunden`;
+  const detail = document.createElement("p");
+  detail.textContent = `${result.passed} von ${result.total} Prüfpunkten erfüllt · ${result.notices} fachliche Hinweise offen. Der Check ist keine Zertifizierung.`;
+  summary.append(title, detail);
+  container.appendChild(summary);
+
+  const groups = [...new Set(result.checks.map((item) => item.group))];
+  groups.forEach((groupName) => {
+    const group = document.createElement("section");
+    group.className = "result-group";
+    const heading = document.createElement("h3");
+    heading.textContent = groupName;
+    group.appendChild(heading);
+    result.checks.filter((item) => item.group === groupName).forEach((check) => {
+      const row = document.createElement("div");
+      const failureClass = check.level === "Hinweis" ? "notice" : "fail";
+      row.className = `result-item ${check.passed ? "pass" : failureClass}`;
+      const icon = document.createElement("span");
+      icon.className = "result-icon";
+      icon.textContent = check.passed ? "✓" : check.level === "Hinweis" ? "!" : "×";
+      const copy = document.createElement("div");
+      const titleElement = document.createElement("b");
+      titleElement.textContent = check.title;
+      const paragraph = document.createElement("p");
+      paragraph.textContent = check.passed ? "Erfüllt." : check.detail;
+      const source = document.createElement("small");
+      source.textContent = `Grundlage: ${check.source}`;
+      copy.append(titleElement, paragraph, source);
+      row.append(icon, copy);
+      group.appendChild(row);
+    });
+    container.appendChild(group);
+  });
+}
+
+function scheduleLocalSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      /* Große Planbilder werden weiterhin in der herunterladbaren Projektdatei gesichert. */
+    }
+  }, 350);
+}
+
+function restoreLocal() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (saved?.version === 2) state = mergeState(saved);
+  } catch {
+    localStorage.removeItem(STORAGE_KEY);
+  }
+}
+
+function mergeState(saved) {
+  const fresh = defaultState();
+  return {
+    ...fresh,
+    ...saved,
+    meta: { ...fresh.meta, ...(saved.meta || {}) },
+    settings: { ...fresh.settings, ...(saved.settings || {}) },
+    facilities: { ...fresh.facilities, ...(saved.facilities || {}) },
+    confirmations: { ...fresh.confirmations, ...(saved.confirmations || {}) },
+    behavior: { ...fresh.behavior, ...(saved.behavior || {}) },
+    elements: Array.isArray(saved.elements) ? saved.elements : []
+  };
+}
+
+function newPlan() {
+  if (!confirm("Möchten Sie den aktuellen Entwurf wirklich schließen und einen neuen Plan beginnen? Die heruntergeladene Projektdatei bleibt erhalten.")) return;
+  state = defaultState();
+  undoStack = [];
+  selectedId = null;
+  currentRoute = [];
+  localStorage.removeItem(STORAGE_KEY);
+  applyStateToControls();
+  invalidateCheck();
+  renderAll();
+  showSection("sectionMeta");
+}
+
+function loadDemo() {
+  if (state.elements.length && !confirm("Soll der aktuelle Entwurf durch das Muster ersetzt werden?")) return;
+  const demo = defaultState();
+  demo.meta = {
+    company: "Musterbetrieb GmbH",
+    building: "Produktionsgebäude 1",
+    floor: "Erdgeschoss – Verpackung",
+    planNumber: "FRP-EG-01",
+    title: "Flucht- und Rettungsplan",
+    author: "Max Mustermann, Brandschutzbeauftragter",
+    created: today(),
+    revision: "Rev. 1",
+    nextReview: nextYear(),
+    emergencyNumber: "Notruf 112 · Werkschutz 555"
+  };
+  demo.confirmations = { siteOriented: true, lowLightUsable: false, facilitiesChecked: true, currentState: true, professionalReview: true };
+  demo.elements = [
+    { id: uid("room"), type: "room", x: 120, y: 120, width: 780, height: 490 },
+    { id: uid("wall"), type: "wall", x1: 510, y1: 120, x2: 510, y2: 610 },
+    { id: uid("wall"), type: "wall", x1: 120, y1: 360, x2: 900, y2: 360 },
+    { id: uid("route"), type: "route", points: [{ x: 255, y: 520 }, { x: 430, y: 430 }, { x: 650, y: 300 }, { x: 885, y: 300 }] },
+    { id: uid("location"), type: "location", x: 250, y: 520 },
+    { id: uid("label"), type: "label", text: "Verpackung", x: 210, y: 235 },
+    { id: uid("label"), type: "label", text: "Flur", x: 610, y: 445 },
+    { id: uid("symbol"), type: "symbol", code: "E002", x: 885, y: 300 },
+    { id: uid("symbol"), type: "symbol", code: "E003", x: 310, y: 155 },
+    { id: uid("symbol"), type: "symbol", code: "F001", x: 535, y: 330 },
+    { id: uid("symbol"), type: "symbol", code: "F005", x: 835, y: 330 },
+    { id: uid("symbol"), type: "symbol", code: "E007", x: 1010, y: 225 }
+  ];
+  state = demo;
+  undoStack = [];
+  selectedId = null;
+  applyStateToControls();
+  changed();
+  showSection("sectionMeta");
+}
+
+function downloadProject(event) {
+  event.preventDefault();
+  scheduleLocalSave();
+  const filename = sanitizeFilename($("#projectName").value || "flucht-und-rettungsplan") + ".frp.json";
+  downloadBlob(filename, new Blob([JSON.stringify(state, null, 2)], { type: "application/json" }));
+  $("#saveDialog").close();
+}
+
+function importProject(file) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = () => {
-    if (file.type.includes("svg")) floorGroup.innerHTML = reader.result;
-    else {
-      const url = reader.result;
-      floorGroup.innerHTML = `${url}`;
+    try {
+      const parsed = JSON.parse(reader.result);
+      if (parsed.version !== 2) throw new Error("Nicht unterstützte Projektversion");
+      state = mergeState(parsed);
+      undoStack = [];
+      selectedId = null;
+      currentRoute = [];
+      applyStateToControls();
+      invalidateCheck();
+      renderAll();
+      scheduleLocalSave();
+      showSection("sectionMeta");
+    } catch {
+      alert("Die Projektdatei konnte nicht geöffnet werden. Bitte wählen Sie eine gültige .frp.json-Datei.");
     }
-    drawLegend();
+    $("#projectUpload").value = "";
   };
-  reader.readAsDataURL(file);
-});
-
-// === CAD Werkzeugleiste ===
-document.querySelectorAll(".toolbtn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".toolbtn").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    state.tool = btn.getAttribute("data-tool");
-    state.selection = null;
-    clearPreviews();
-  });
-});
-document.querySelector('.toolbtn[data-tool="select"]').classList.add("active");
-
-// === SVG Hilfs-Erzeuger ===
-function lineEl(x1,y1,x2,y2, cls, sw=2) {
-  const el = document.createElementNS("http://www.w3.org/2000/svg", "line");
-  el.setAttribute("x1", x1); el.setAttribute("y1", y1);
-  el.setAttribute("x2", x2); el.setAttribute("y2", y2);
-  el.setAttribute("class", cls || "");
-  el.setAttribute("stroke-width", sw);
-  return el;
-}
-function rectEl(x,y,w,h, cls, sw=2, fill="none") {
-  const el = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-  el.setAttribute("x", Math.min(x, x+w));
-  el.setAttribute("y", Math.min(y, y+h));
-  el.setAttribute("width", Math.abs(w));
-  el.setAttribute("height", Math.abs(h));
-  el.setAttribute("class", cls || "");
-  el.setAttribute("stroke-width", sw);
-  el.setAttribute("fill", fill);
-  return el;
-}
-function arcPath(x,y,r,angle) {
-  // einfacher Türanschlag (90° Bogen)
-  const rad = (angle || 90) * Math.PI/180;
-  const x2 = x + r*Math.cos(rad), y2 = y + r*Math.sin(rad);
-  const large = angle > 180 ? 1 : 0;
-  return `M ${x},${y} A ${r},${r} 0 ${large},1 ${x2},${y2}`;
+  reader.readAsText(file);
 }
 
-// === Zeichenlogik ===
-const wallThkMm = $("#wallThkMm");
-const doorWidthMm = $("#doorWidthMm");
-const winWidthMm = $("#winWidthMm");
-
-let pointer = {x:0,y:0};   // aktuelle Mausposition im SVG
-
-canvas.addEventListener("pointerdown", onPointerDown);
-canvas.addEventListener("pointermove", onPointerMove);
-canvas.addEventListener("pointerup", onPointerUp);
-canvas.addEventListener("dblclick", onDblClick);
-window.addEventListener("keydown", onKeyDown);
-
-function svgPoint(evt){
-  const pt = canvas.createSVGPoint();
-  pt.x = evt.clientX; pt.y = evt.clientY;
-  const m = canvas.getScreenCTM().inverse();
-  const p = pt.matrixTransform(m);
-  return { x: p.x, y: p.y };
+function sanitizeFilename(value) {
+  return value.trim().replace(/[^a-zA-Z0-9äöüÄÖÜß_-]+/g, "-").replace(/^-+|-+$/g, "") || "flucht-und-rettungsplan";
 }
 
-function onPointerDown(e){
-  const p = svgPoint(e);
-  pointer = p;
-  if (state.tool === "pan") {
-    state.isPanning = true;
-    state.panStart = { x: e.clientX, y: e.clientY, vb: canvas.viewBox.baseVal };
-    return;
-  }
-  if (state.tool === "select" || state.tool === "erase") {
-    const target = e.target.closest(".draw-elt");
-    if (target) {
-      if (state.tool === "erase") { pushUndo(); removeById(target.dataset.id); return; }
-      state.selection = target.dataset.id;
-      updateSelection();
-      return;
-    } else {
-      state.selection = null; updateSelection();
-      return;
-    }
-  }
-  if (state.tool === "wall") {
-    pushUndo();
-    const q = snap(p.x, p.y);
-    state.wallPreview = { start: q, end: q };
-    renderPreviews();
-    return;
-  }
-  if (state.tool === "rect") {
-    pushUndo();
-    const q = snap(p.x, p.y);
-    state.measurePreview = { start: q, end: q, mode:"rect" };
-    renderPreviews();
-    return;
-  }
-  if (state.tool === "measure") {
-    const q = snap(p.x, p.y);
-    state.measurePreview = { start: q, end: q, mode:"measure" };
-    renderPreviews();
-    return;
-  }
-  if (state.tool === "door" || state.tool === "window") {
-    pushUndo();
-    const q = snap(p.x, p.y);
-    placeOpening(state.tool, q);
-    renderDrawing();
-  }
-}
-
-function onPointerMove(e){
-  const p = svgPoint(e);
-  pointer = p;
-
-  if (state.isPanning) {
-    const dx = state.panStart.vb.x - (e.clientX - state.panStart.x)/2;
-    const dy = state.panStart.vb.y - (e.clientY - state.panStart.y)/2;
-    canvas.viewBox.baseVal.x = dx;
-    canvas.viewBox.baseVal.y = dy;
-    return;
-  }
-
-  if (state.wallPreview) {
-    const q = snap(p.x, p.y);
-    state.wallPreview.end = q;
-    renderPreviews();
-    return;
-  }
-  if (state.measurePreview) {
-    const q = snap(p.x, p.y);
-    state.measurePreview.end = q;
-    renderPreviews();
-    return;
-  }
-}
-
-function onPointerUp(e){
-  if (state.isPanning) { state.isPanning = false; return; }
-
-  if (state.wallPreview) {
-    const { start, end } = state.wallPreview;
-    if (distance(start, end) > 1) {
-      const thkPx = mmToPx(parseFloat(wallThkMm.value || "240"));
-      const id = genId("wall");
-      state.drawing.push({ id, type:"wall", x1:start.x, y1:start.y, x2:end.x, y2:end.y, thk: thkPx });
-    }
-    state.wallPreview = null;
-    clearPreviews();
-    renderDrawing();
-    return;
-  }
-
-  if (state.measurePreview && state.measurePreview.mode === "rect") {
-    const { start, end } = state.measurePreview;
-    const id = genId("room");
-    state.drawing.push({ id, type:"room", x:start.x, y:start.y, w:end.x - start.x, h:end.y - start.y });
-    state.measurePreview = null;
-    clearPreviews();
-    renderDrawing();
-    return;
-  }
-
-  if (state.measurePreview && state.measurePreview.mode === "measure") {
-    const { start, end } = state.measurePreview;
-    const id = genId("measure");
-    state.drawing.push({ id, type:"measure", x1:start.x, y1:start.y, x2:end.x, y2:end.y });
-    state.measurePreview = null;
-    clearPreviews();
-    renderDrawing();
-    return;
-  }
-}
-
-function onDblClick(e){
-  const target = e.target.closest(".draw-elt");
-  if (target) { pushUndo(); removeById(target.dataset.id); }
-}
-
-function onKeyDown(e){
-  if (e.key === "Delete" || e.key === "Backspace") {
-    if (state.selection) { pushUndo(); removeById(state.selection); state.selection = null; updateSelection(); }
-  }
-  if (e.key.toLowerCase() === "w") setTool("wall");
-  if (e.key.toLowerCase() === "r") setTool("rect");
-  if (e.key.toLowerCase() === "t") setTool("door");
-  if (e.key.toLowerCase() === "f") setTool("window");
-  if (e.key.toLowerCase() === "v") setTool("select");
-  if (e.key.toLowerCase() === "m") setTool("measure");
-}
-
-function setTool(name){
-  document.querySelectorAll(".toolbtn").forEach(b => b.classList.remove("active"));
-  const btn = document.querySelector(`.toolbtn[data-tool="${name}"]`);
-  if (btn) btn.classList.add("active");
-  state.tool = name;
-  state.selection = null;
-  clearPreviews();
-}
-
-function placeOpening(kind, p) {
-  // Öffnungen werden als zentrales Element mit Breite und Ausrichtung gesetzt.
-  const widthMm = kind === "door" ? parseFloat(doorWidthMm.value||"1000") : parseFloat(winWidthMm.value||"1200");
-  const id = genId(kind);
-  state.drawing.push({
-    id, type: kind, x: p.x, y: p.y,
-    angle: 0, widthPx: mmToPx(widthMm)
-  });
-}
-
-// === Rendern ===
-function renderPreviews(){
-  // temporäre Layer in drawGroup nicht mischen: wir nutzen eine eigene Gruppe
-  const prevId = "preview-layer";
-  let prev = document.getElementById(prevId);
-  if (!prev) { prev = document.createElementNS("http://www.w3.org/2000/svg","g"); prev.id = prevId; drawGroup.appendChild(prev); }
-  prev.innerHTML = "";
-
-  if (state.wallPreview) {
-    const { start, end } = state.wallPreview;
-    const line = lineEl(start.x, start.y, end.x, end.y, "wall", mmToPx(parseFloat(wallThkMm.value||"240")));
-    line.setAttribute("opacity", "0.5");
-    prev.appendChild(line);
-  }
-  if (state.measurePreview) {
-    if (state.measurePreview.mode === "rect") {
-      const { start, end } = state.measurePreview;
-      prev.appendChild(rectEl(start.x, start.y, end.x-start.x, end.y-start.y, "room", 2, "#e5f0ff"));
-    } else {
-      const { start, end } = state.measurePreview;
-      prev.appendChild(lineEl(start.x, start.y, end.x, end.y, "measure", 2));
-    }
-  }
-}
-function clearPreviews(){
-  const prev = document.getElementById("preview-layer");
-  if (prev) prev.remove();
-}
-
-function renderDrawing(){
-  drawGroup.innerHTML = "";
-
-  for (const elt of state.drawing) {
-    let node = null;
-
-    if (elt.type === "wall") {
-      node = lineEl(elt.x1, elt.y1, elt.x2, elt.y2, "draw-elt wall", elt.thk || mmToPx(240));
-    }
-
-    if (elt.type === "room") {
-      node = rectEl(elt.x, elt.y, elt.w, elt.h, "draw-elt room", 2, "#f1f5f9");
-    }
-
-    if (elt.type === "door") {
-      const r = (elt.widthPx || mmToPx(1000)) / 2;
-      const path = document.createElementNS("http://www.w3.org/2000/svg","path");
-      path.setAttribute("d", arcPath(elt.x, elt.y, r, 90));
-      path.setAttribute("class","draw-elt door");
-      node = document.createElementNS("http://www.w3.org/2000/svg","g");
-      node.appendChild(path);
-    }
-
-    if (elt.type === "window") {
-      const w = elt.widthPx || mmToPx(1200);
-      const l1 = lineEl(elt.x - w/2, elt.y, elt.x + w/2, elt.y, "draw-elt window", 3);
-      node = document.createElementNS("http://www.w3.org/2000/svg","g");
-      node.appendChild(l1);
-    }
-
-    if (elt.type === "measure") {
-      node = lineEl(elt.x1, elt.y1, elt.x2, elt.y2, "draw-elt measure", 2);
-    }
-
-    if (!node) continue;
-
-    // Markierung, Auswahl, Drag
-    if (node.classList) node.classList.add("draw-elt");
-    node.dataset.id = elt.id;
-    attachInteract(node, elt);
-    drawGroup.appendChild(node);
-  }
-  updateSelection();
-}
-
-function attachInteract(node, elt){
-  // Ziehen (einfach): auf Gruppe/Element anwenden
-  let dragging = false, sx=0, sy=0;
-
-  node.addEventListener("pointerdown", (e) => {
-    if (state.tool !== "select") return;
-    dragging = true;
-    sx = e.clientX; sy = e.clientY;
-    state.selection = elt.id; updateSelection();
-    e.stopPropagation();
-  });
-  window.addEventListener("pointermove", (e) => {
-    if (!dragging || state.tool !== "select") return;
-    const dx = (e.clientX - sx);
-    const dy = (e.clientY - sy);
-    sx = e.clientX; sy = e.clientY;
-    const dxSvg = dx / (window.devicePixelRatio || 1) * 0.75; // grobe Umrechnung
-    const dySvg = dy / (window.devicePixelRatio || 1) * 0.75;
-
-    if (elt.type === "wall") { elt.x1 += dxSvg; elt.y1 += dySvg; elt.x2 += dxSvg; elt.y2 += dySvg; }
-    else if (elt.type === "room") { elt.x += dxSvg; elt.y += dySvg; }
-    else if (elt.type === "door" || elt.type === "window") { elt.x += dxSvg; elt.y += dySvg; }
-    else if (elt.type === "measure") { elt.x1 += dxSvg; elt.y1 += dySvg; elt.x2 += dxSvg; elt.y2 += dySvg; }
-
-    renderDrawing();
-  });
-  window.addEventListener("pointerup", () => { dragging = false; });
-}
-
-function updateSelection(){
-  drawGroup.querySelectorAll(".draw-elt").forEach(n => n.classList.remove("selected"));
-  if (!state.selection) return;
-  const selNode = drawGroup.querySelector(`[data-id="${state.selection}"]`);
-  if (selNode) selNode.classList.add("selected");
-}
-
-function removeById(id){
-  state.drawing = state.drawing.filter(d => d.id !== id);
-  renderDrawing();
-}
-function genId(prefix){ return `${prefix}-${Math.random().toString(36).slice(2,9)}`; }
-function distance(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
-
-// === Legende, Nordpfeil, Standort ===
-$("#legendLang").addEventListener("change", drawLegend);
-function legendText(lang){
-  return lang === "en"
-    ? { title:"Legend", rescue:"Emergency", fire:"Fire", warn:"Warning", mand:"Mandatory" }
-    : { title:"Legende", rescue:"Rettungszeichen", fire:"Brandbekämpfung", warn:"Warnzeichen", mand:"Gebotszeichen" };
-}
-function drawLegend(){
-  const lang = $("#legendLang").value || "de";
-  const t = legendText(lang);
-  legendGroup.innerHTML = `
-    <g transform="translate(1050,860)">
-      <rect x="0" y="0" width="330" height="120" fill="#fff" stroke="#cbd5e1"/>
-      <text x="10" y="20" font-size="14" font-weight="700">${t.title}</text>
-      <g transform="translate(10,40)">
-        <rect x="0" y="-12" width="24" height="24" fill="#16a34a" stroke="#111"/><text x="32" y="6" font-size="12">${t.rescue}</text>
-        <rect x="150" y="-12" width="24" height="24" fill="#dc2626" stroke="#111"/><text x="182" y="6" font-size="12">${t.fire}</text>
-      </g>
-      <g transform="translate(10,80)">
-        <rect x="0" y="-12" width="24" height="24" fill="#f59e0b" stroke="#111"/><text x="32" y="6" font-size="12">${t.warn}</text>
-        <rect x="150" y="-12" width="24" height="24" fill="#1e40af" stroke="#111"/><text x="182" y="6" font-size="12">${t.mand}</text>
-      </g>
-    </g>
-  `;
-}
-$("#showNorth").addEventListener("change", (e) => {
-  northGroup.innerHTML = e.target.checked ? `
-    <g transform="translate(1320,60)">
-      <text x="0" y="0" font-size="12" fill="#111">N</text>
-      <path d="M0,10 L0,-20 M-5,-15 L0,-25 L5,-15" stroke="#111" fill="#111"/>
-    </g>` : "";
-});
-$("#showYouAreHere").addEventListener("change", (e) => {
-  youAreHereGroup.innerHTML = e.target.checked ? `
-    <g transform="translate(80,920)">
-      <circle cx="0" cy="0" r="8" fill="#1e40af" />
-      <text x="14" y="5" font-size="12" fill="#111">Sie sind hier</text>
-    </g>` : "";
-});
-
-// === ISO 7010 Symbole ===
-async function loadIconSVG(code) {
-  const res = await fetch(`/api/icons/${code}`);
-  if (res.ok) return await res.text();
-  return `<rect x="-18" y="-18" width="36" height="36" rx="2" fill="#16a34a" stroke="#111" />
-          <text x="0" y="6" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">${code}</text>`;
-}
-async function drawSymbol(code, x, y) {
-  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-  g.setAttribute("transform", `translate(${x},${y})`);
-  g.setAttribute("data-code", code);
-  const svg = await loadIconSVG(code);
-  g.innerHTML = `<g transform="translate(-18,-18)">${svg}</g>`;
-  symbolsGroup.appendChild(g);
-  makeSymbolDraggable(g);
-  g.addEventListener("dblclick", () => g.remove());
-}
-function makeSymbolDraggable(el) {
-  let drag = false, sx=0, sy=0, ox=0, oy=0;
-  el.addEventListener("mousedown", (e) => {
-    drag = true;
-    const m = /translate\(([-0-9.]+),([-0-9.]+)\)/.exec(el.getAttribute("transform"));
-    ox = m ? parseFloat(m[1]) : 0; oy = m ? parseFloat(m[2]) : 0;
-    sx = e.clientX; sy = e.clientY;
-  });
-  window.addEventListener("mousemove", (e) => {
-    if (!drag) return;
-    const nx = ox + (e.clientX - sx);
-    const ny = oy + (e.clientY - sy);
-    el.setAttribute("transform", `translate(${nx},${ny})`);
-  });
-  window.addEventListener("mouseup", () => drag = false);
-}
-$("#addRescueSign").addEventListener("click", () => addFromSelect("#rescueSignSelect"));
-$("#addFireSign").addEventListener("click", () => addFromSelect("#fireSignSelect"));
-$("#addWarnSign").addEventListener("click", () => addFromSelect("#warnSignSelect"));
-$("#addMandSign").addEventListener("click", () => addFromSelect("#mandSignSelect"));
-function addFromSelect(sel){
-  const code = $(sel).value;
-  drawSymbol(code, 700, 500);
-}
-
-// === AI ===
-$("#aiSuggestBtn").addEventListener("click", async () => {
-  const payload = collectPlanContext();
-  const res = await fetch("/api/generate", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ task: "layout", context: payload })
-  });
-  const json = await res.json();
-  $("#aiOutput").textContent = JSON.stringify(json, null, 2);
-  if (json.suggestedSymbols) {
-    for (const s of json.suggestedSymbols) await drawSymbol(s.code, s.x, s.y);
-  }
-});
-$("#aiTextsBtn").addEventListener("click", async () => {
-  const payload = collectPlanContext();
-  const res = await fetch("/api/generate", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ task: "texts", context: payload })
-  });
-  const json = await res.json();
-  $("#aiOutput").textContent = JSON.stringify(json, null, 2);
-});
-
-// === Prüfung & Export ===
-$("#validateBtn").addEventListener("click", async () => {
-  const payload = collectPlanContext();
-  const res = await fetch("/api/validate", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  const json = await res.json();
-  $("#validationOutput").textContent = JSON.stringify(json, null, 2);
-});
-
-$("#exportSVG").addEventListener("click", () => {
-  const svgData = new XMLSerializer().serializeToString(canvas);
-  download("fluchtplan.svg", "image/svg+xml;charset=utf-8", svgData);
-});
-$("#exportPNG").addEventListener("click", async () => {
-  const svgData = new XMLSerializer().serializeToString(canvas);
-  const img = new Image();
-  const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(svgBlob);
-  img.onload = () => {
-    const cnv = document.createElement("canvas");
-    cnv.width = 1400; cnv.height = 1000;
-    const ctx = cnv.getContext("2d");
-    ctx.fillStyle = "#fff"; ctx.fillRect(0,0,cnv.width,cnv.height);
-    ctx.drawImage(img,0,0);
-    URL.revokeObjectURL(url);
-    cnv.toBlob(blob => download("fluchtplan.png", "image/png", blob), "image/png");
-  };
-  img.src = url;
-});
-$("#exportPDF").addEventListener("click", () => {
-  alert("Bitte über den Browser drucken: A3, 100 %, Hintergrundgrafiken an.");
-});
-$("#exportPDFServer").addEventListener("click", async () => {
-  const svgData = new XMLSerializer().serializeToString(canvas);
-  const img = new Image();
-  const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(svgBlob);
-  img.onload = async () => {
-    const cnv = document.createElement("canvas");
-    cnv.width = 1400; cnv.height = 1000;
-    const ctx = cnv.getContext("2d");
-    ctx.fillStyle = "#fff"; ctx.fillRect(0,0,cnv.width,cnv.height);
-    ctx.drawImage(img,0,0);
-    URL.revokeObjectURL(url);
-    cnv.toBlob(async (blob) => {
-      const jpegArray = new Uint8Array(await blob.arrayBuffer());
-      const b64 = btoa(String.fromCharCode(...jpegArray));
-      // Turnstile optional; wenn nicht aktiv, leeren Token senden (Server kann es ignorieren/prüfen)
-      const res = await fetch("/api/pdf/export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jpegBase64: b64, turnstileToken: "" })
-      });
-      if (!res.ok) { alert("PDF‑Erstellung fehlgeschlagen."); return; }
-      const pdfBlob = await res.blob();
-      download("fluchtplan.pdf", "application/pdf", pdfBlob);
-    }, "image/jpeg", 0.92);
-  };
-  img.src = url;
-});
-
-function download(name, type, data){
-  const a = document.createElement("a");
-  const blob = data instanceof Blob ? data : new Blob([data], { type });
+function downloadBlob(name, blob) {
   const url = URL.createObjectURL(blob);
-  a.href = url; a.download = name; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 500);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// === Planstatus sammeln (Drafts) ===
-function collectPlanContext(){
-  return {
-    size: $("#planSize").value,
-    scale: $("#scaleInput").value,
-    hasNorthArrow: $("#showNorth").checked,
-    hasYouAreHere: $("#showYouAreHere").checked,
-    siteContext: $("#siteContext").value,
-    legendLang: $("#legendLang").value,
-    drawing: state.drawing, // CAD‑Elemente
-    symbols: Array.from(symbolsGroup.querySelectorAll("g")).map(g => {
-      const t = g.getAttribute("transform");
-      const m = /translate\(([-0-9.]+),([-0-9.]+)\)/.exec(t);
-      const xy = m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : { x: 0, y: 0 };
-      const code = g.getAttribute("data-code") || "E001";
-      return { code, ...xy };
-    })
-  };
+function exportSvg() {
+  const copy = canvas.cloneNode(true);
+  copy.querySelector("#gridLayer")?.remove();
+  copy.querySelector("#previewLayer")?.remove();
+  copy.setAttribute("xmlns", SVG_NS);
+  const data = new XMLSerializer().serializeToString(copy);
+  downloadBlob(`${sanitizeFilename(state.meta.planNumber || "fluchtplan")}.svg`, new Blob([data], { type: "image/svg+xml;charset=utf-8" }));
 }
 
-// === Entwürfe (KV + D1) ===
-$("#saveDraftBtn").addEventListener("click", async () => {
-  const title = $("#draftTitle").value || "Unbenannter Entwurf";
-  const payload = collectPlanContext();
-  const res = await fetch("/api/drafts/save", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title, plan: payload })
-  });
-  const json = await res.json();
-  alert(json.message || "Gespeichert.");
-});
-$("#listDraftsBtn").addEventListener("click", async () => {
-  const res = await fetch("/api/drafts/list");
-  const list = await res.json();
-  $("#draftsList").textContent = JSON.stringify(list, null, 2);
-});
+function printPlan() {
+  const result = window.FluchtplanRules.validatePlan(state);
+  if (!result.ready) {
+    runNormCheck();
+    alert("Der PDF-Export ist erst möglich, wenn alle Pflichtabweichungen bearbeitet wurden.");
+    return;
+  }
+  document.body.classList.remove("print-a3", "print-a4");
+  document.body.classList.add(state.settings.format === "A4" ? "print-a4" : "print-a3");
+  window.print();
+}
+
+window.addEventListener("afterprint", () => document.body.classList.remove("print-a3", "print-a4"));
+
+function initialize() {
+  restoreLocal();
+  renderSignLibrary();
+  bindControls();
+  applyStateToControls();
+  setTool("select");
+  renderAll();
+}
+
+initialize();

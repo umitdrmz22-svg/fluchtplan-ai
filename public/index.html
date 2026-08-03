@@ -1,185 +1,213 @@
-
 <!doctype html>
 <html lang="de">
 <head>
-  <meta charset="utf-8" />
-  <title>Flucht- und Rettungsplan – AI Ersteller (DIN ISO 23601, ISO 7010)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Browserbasierter Flucht- und Rettungsplan-Ersteller mit CAD-Zeichenbereich, ISO 7010-Symbolen, AI-Unterstützung und Entwurfsverwaltung (KV/D1).">
-  <!-- Optional: Turnstile (nur für serverseitige Endpunkte erforderlich) -->
-  <!-- <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script> -->
-  <link rel="stylesheet" href="./style.css" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Regelbasierter Editor für Flucht- und Rettungspläne nach ArbStättV, ASR A2.3, ASR A1.3 und DIN ISO 23601.">
+  <title>Fluchtplan Studio – Flucht- und Rettungspläne erstellen</title>
+  <link rel="stylesheet" href="style.css?v=20260803">
 </head>
 <body>
-  <header>
-    <h1>Flucht- und Rettungsplan – AI Ersteller</h1>
-    <p class="subtitle">DIN ISO 23601 konform, ISO 7010 Symbole, CAD‑Zeichnung, Speicherung in KV/D1.</p>
+  <header class="app-header">
+    <a class="brand" href="./" aria-label="Fluchtplan Studio Startseite">
+      <span class="brand-mark">FR</span>
+      <span>Fluchtplan <b>Studio</b></span>
+    </a>
+    <div class="header-status"><span class="status-dot"></span> Verarbeitung lokal im Browser</div>
+    <div class="header-actions">
+      <button class="button ghost" id="newPlanBtn" title="Alle Eingaben zurücksetzen">Neuer Plan</button>
+      <button class="button ghost" id="demoBtn" title="Ein vollständiges Musterprojekt öffnen">Muster öffnen</button>
+      <button class="button ghost" id="saveBtn" title="Projekt im Browser und als Datei sichern">Projekt sichern</button>
+      <label class="button ghost file-button" title="Eine zuvor gesicherte Projektdatei öffnen">Projekt öffnen<input id="projectUpload" type="file" accept=".frp.json,application/json"></label>
+      <button class="button primary" id="checkBtn" title="Alle fachlichen Pflichtpunkte prüfen">Norm-Check starten</button>
+    </div>
   </header>
 
-  <main>
-    <!-- 1) Entwürfe -->
-    <section class="panel">
-      <h2>1) Entwürfe verwalten</h2>
-      <div class="row">
-        <div class="tool">
-          <label for="draftTitle">Entwurfstitel:</label>
-          <input id="draftTitle" type="text" placeholder="z. B. EG - Produktion Nord" />
-        </div>
-        <div class="tool">
-          <button id="saveDraftBtn">Entwurf speichern</button>
-          <button id="listDraftsBtn">Entwürfe laden</button>
-        </div>
-      </div>
-      <div id="draftsList" class="code" aria-live="polite"></div>
-    </section>
-
-    <!-- 2) Grundriss: Datei laden (opsiyonel) -->
-    <section class="panel">
-      <h2>2) Grundriss (optional laden)</h2>
-      <div class="row">
-        <div>
-          <label for="floorUpload">Grundriss (SVG/PNG) hochladen:</label>
-          <input id="floorUpload" type="file" accept=".svg,.png,.jpg,.jpeg" />
-          <button id="loadSample">Demo laden</button>
-        </div>
-        <div>
-          <label for="scaleInput">Maßstab:</label>
-          <input id="scaleInput" type="text" value="1:250" />
-          <label for="planSize">Ausgabeformat:</label>
-          <select id="planSize">
-            <option value="A3">A3 (empfohlen)</option>
-            <option value="A4">A4 (nur Einzelraum zulässig)</option>
-          </select>
-          <label for="legendLang">Legende‑Sprache:</label>
-          <select id="legendLang">
-            <option value="de">Deutsch</option>
-            <option value="en">Englisch</option>
-          </select>
-        </div>
-      </div>
-      <p class="hint">Hinweis: Wenn kein Grundriss geladen wird, erstellen Sie ihn direkt im CAD‑Bereich (unten) mit Wänden, Türen, Fenstern.</p>
-    </section>
-
-    <!-- 3) CAD‑Zeichenbereich -->
-    <section class="panel">
-      <h2>3) Grundriss zeichnen (CAD‑Modus)</h2>
-
-      <div class="row toolbar">
-        <div class="tool">
-          <strong>Werkzeug:</strong>
-          <button class="toolbtn" data-tool="select" title="Auswählen (V)">Auswahl</button>
-          <button class="toolbtn" data-tool="pan" title="Verschieben (Halten+Ziehen)">Verschieben</button>
-          <button class="toolbtn" data-tool="wall" title="Wand (W)">Wand</button>
-          <button class="toolbtn" data-tool="door" title="Tür (T)">Tür</button>
-          <button class="toolbtn" data-tool="window" title="Fenster (F)">Fenster</button>
-          <button class="toolbtn" data-tool="rect" title="Raum Rechteck (R)">Raum</button>
-          <button class="toolbtn" data-tool="measure" title="Messen (M)">Messen</button>
-          <button class="toolbtn danger" data-tool="erase" title="Löschen (Entf)">Löschen</button>
-          <button id="undoBtn" title="Rückgängig (Strg+Z)">Rückgängig</button>
-        </div>
-
-        <div class="tool">
-          <label for="gridSizeMm">Raster (mm):</label>
-          <input id="gridSizeMm" type="number" min="50" value="500" step="50" />
-          <label><input type="checkbox" id="gridToggle" checked /> Raster anzeigen</label>
-          <label><input type="checkbox" id="snapToggle" checked /> Auf Raster fangen</label>
-        </div>
-
-        <div class="tool">
-          <label for="wallThkMm">Wandstärke (mm):</label>
-          <input id="wallThkMm" type="number" min="50" value="240" step="10" />
-          <label for="doorWidthMm">Türbreite (mm):</label>
-          <input id="doorWidthMm" type="number" min="600" value="1000" step="50" />
-          <label for="winWidthMm">Fensterbreite (mm):</label>
-          <input id="winWidthMm" type="number" min="600" value="1200" step="50" />
-        </div>
+  <div class="app-shell">
+    <aside class="editor-panel" aria-label="Bearbeitungsbereich">
+      <div class="progress-card">
+        <div><span id="progressText">0 von 5 Bereichen bearbeitet</span><b id="progressPercent">0 %</b></div>
+        <div class="progress-track"><i id="progressBar"></i></div>
       </div>
 
-      <div id="canvasWrapper">
-        <svg id="planCanvas" viewBox="0 0 1400 1000" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Plan">
-          <rect x="0" y="0" width="1400" height="1000" fill="#ffffff" />
-          <g id="floorGroup"></g>
-          <g id="drawGrid"></g>
-          <g id="drawGroup"></g>
-          <g id="symbolsGroup"></g>
-          <g id="northGroup"></g>
-          <g id="youAreHereGroup"></g>
-          <g id="legendGroup"></g>
-        </svg>
-      </div>
-      <div class="hint">Tipp: Wände mit zwei Klicks zeichnen (Start/Ende). Türen/Fenster auf eine Wand klicken; Auswahl mit Klick, Verschieben durch Ziehen, Entfernen durch Doppelklick oder Löschen.</div>
-    </section>
+      <nav class="step-nav" aria-label="Bearbeitungsschritte">
+        <button class="active" data-target="sectionMeta"><span>1</span>Planangaben</button>
+        <button data-target="sectionFloor"><span>2</span>Grundriss</button>
+        <button data-target="sectionRoutes"><span>3</span>Fluchtwege</button>
+        <button data-target="sectionInfo"><span>4</span>Informationen</button>
+        <button data-target="sectionRelease"><span>5</span>Freigabe</button>
+      </nav>
 
-    <!-- 4) ISO 7010 Symbole -->
-    <section class="panel">
-      <h2>4) Symbole (ISO 7010)</h2>
-      <p class="subtitle">Echte ISO‑7010‑SVGs in <code>public/assets/icons/</code> (Dateiname = Code, z. B. <code>E001.svg</code>).</p>
-      <div class="row">
-        <div class="tool">
-          <label>Rettungszeichen (E):</label>
-          <select id="rescueSignSelect"></select>
-          <button id="addRescueSign">Hinzufügen</button>
+      <section class="editor-section active" id="sectionMeta">
+        <div class="section-heading"><span>01</span><div><h2>Planangaben</h2><p>Dokumentieren Sie Objekt, Geltungsbereich und Revisionsstand.</p></div></div>
+        <div class="field-grid two">
+          <label>Unternehmen<input data-path="meta.company" autocomplete="organization" placeholder="Muster GmbH"></label>
+          <label>Gebäude<input data-path="meta.building" placeholder="Werk 1"></label>
+          <label>Geschoss / Bereich<input data-path="meta.floor" placeholder="Erdgeschoss – Produktion"></label>
+          <label>Plannummer<input data-path="meta.planNumber" placeholder="FRP-EG-01"></label>
+          <label class="wide">Planbezeichnung<input data-path="meta.title" value="Flucht- und Rettungsplan"></label>
+          <label>Erstellt durch<input data-path="meta.author" placeholder="Name / Funktion"></label>
+          <label>Erstellungsdatum<input data-path="meta.created" type="date"></label>
+          <label>Revisionsstand<input data-path="meta.revision" placeholder="Rev. 1"></label>
+          <label>Nächste Prüfung<input data-path="meta.nextReview" type="date"></label>
+          <label>Notruf / interne Nummer<input data-path="meta.emergencyNumber" value="Notruf 112"></label>
+          <label>Maßstab<input data-path="settings.scale" value="1:250" placeholder="1:250"></label>
+          <label>Ausgabeformat<select data-path="settings.format"><option value="A3">A3 quer – Regelformat</option><option value="A4">A4 – besonderer Anwendungsfall</option></select></label>
+          <label class="wide conditional" id="a4ReasonField">Begründung für A4<input data-path="settings.a4Reason" placeholder="z. B. einzelner Hotel- oder Klassenraum"></label>
         </div>
-        <div class="tool">
-          <label>Brandbekämpfung (F):</label>
-          <select id="fireSignSelect"></select>
-          <button id="addFireSign">Hinzufügen</button>
+        <div class="info-box"><b>Fachlicher Hinweis</b><p>A3 und ein Detailmaßstab bis 1:250 sind der sichere Standard. A4 muss für den konkreten Einzelfall geeignet und ausreichend lesbar sein.</p></div>
+      </section>
+
+      <section class="editor-section" id="sectionFloor">
+        <div class="section-heading"><span>02</span><div><h2>Grundriss und Orientierung</h2><p>Laden Sie einen aktuellen Plan oder erstellen Sie die notwendigen Konturen.</p></div></div>
+        <div class="upload-zone" id="floorDrop">
+          <input id="floorUpload" type="file" accept="image/png,image/jpeg,image/svg+xml,.svg,.png,.jpg,.jpeg">
+          <div class="upload-icon">⌁</div>
+          <b>Grundriss hier ablegen</b>
+          <span>SVG, PNG oder JPG · Papierpläne zuvor maßstabsgerecht scannen</span>
+          <button type="button" class="button secondary" id="floorSelectBtn">Grundriss auswählen</button>
         </div>
-        <div class="tool">
-          <label>Warnzeichen (W):</label>
-          <select id="warnSignSelect"></select>
-          <button id="addWarnSign">Hinzufügen</button>
+        <div class="file-state" id="floorFileState">Noch kein Grundriss geladen.</div>
+        <div class="field-grid two compact">
+          <label>Deckkraft<input id="opacityRange" type="range" min="20" max="100" value="82"></label>
+          <label>Ausrichtung<select data-path="settings.rotation"><option value="0">0°</option><option value="90">90° rechts</option><option value="180">180°</option><option value="270">90° links</option></select></label>
         </div>
-        <div class="tool">
-          <label>Gebotszeichen (M):</label>
-          <select id="mandSignSelect"></select>
-          <button id="addMandSign">Hinzufügen</button>
+        <label class="check-row"><input data-path="settings.partialArea" type="checkbox"><span><b>Es wird nur ein Gebäudeteil gezeigt</b><small>Dann ist zusätzlich eine Übersichtsskizze erforderlich.</small></span></label>
+        <div class="overview-upload conditional" id="overviewField">
+          <label>Übersichtsskizze<input id="overviewUpload" type="file" accept="image/png,image/jpeg,image/svg+xml,.svg,.png,.jpg,.jpeg"></label>
+          <span id="overviewFileState">Noch keine Übersicht geladen.</span>
+        </div>
+        <label class="check-row important"><input data-path="confirmations.siteOriented" type="checkbox"><span><b>Lagerichtige Darstellung geprüft</b><small>Oben im Plan entspricht am vorgesehenen Aushangort der Blickrichtung nach vorn.</small></span></label>
+        <div class="tool-help"><b>Ohne Planunterlage?</b><span>Nutzen Sie im Zeichenbereich „Raum“ und „Wand“. Türen und die tatsächliche Fluchtwegführung müssen anschließend fachlich abgeglichen werden.</span></div>
+      </section>
+
+      <section class="editor-section" id="sectionRoutes">
+        <div class="section-heading"><span>03</span><div><h2>Fluchtwege und Einrichtungen</h2><p>Zeichnen Sie die Wege und setzen Sie ausschließlich tatsächlich vorhandene Zeichen.</p></div></div>
+        <div class="facility-grid">
+          <label><input data-path="facilities.firstAid" type="checkbox" checked><span>Erste Hilfe vorhanden</span></label>
+          <label><input data-path="facilities.fire" type="checkbox" checked><span>Brandbekämpfung vorhanden</span></label>
+          <label><input data-path="facilities.alarm" type="checkbox" checked><span>Alarmierung vorhanden</span></label>
+          <label><input data-path="facilities.assembly" type="checkbox" checked><span>Sammelstelle vorgesehen</span></label>
+        </div>
+
+        <h3>Rettungszeichen</h3>
+        <div class="sign-library" id="rescueSigns"></div>
+        <h3>Brandschutzzeichen</h3>
+        <div class="sign-library" id="fireSigns"></div>
+
+        <div class="info-box warning"><b>Keine automatische Wegplanung</b><p>Fluchtwege werden nicht geschätzt. Grundlage sind der aktuelle Grundriss, das Brandschutzkonzept, die Gefährdungsbeurteilung und die tatsächlichen Notausgänge.</p></div>
+      </section>
+
+      <section class="editor-section" id="sectionInfo">
+        <div class="section-heading"><span>04</span><div><h2>Verhalten und Legende</h2><p>Passen Sie die kurzen Anweisungen an die betriebliche Alarmierung an.</p></div></div>
+        <label>Verhalten im Brandfall<textarea data-path="behavior.fire" rows="7"></textarea></label>
+        <label>Verhalten bei Unfällen<textarea data-path="behavior.accident" rows="7"></textarea></label>
+        <div class="field-grid two compact">
+          <label class="switch-row"><input data-path="settings.showLegend" type="checkbox" checked><span>Legende anzeigen</span></label>
+          <label class="switch-row"><input data-path="settings.showNorth" type="checkbox" checked><span>Nordpfeil anzeigen</span></label>
+          <label>Sicherheitsbeleuchtung am Aushangort<select data-path="settings.safetyLighting"><option value="nein">Nein</option><option value="ja">Ja</option><option value="unklar">Noch zu prüfen</option></select></label>
+        </div>
+        <label class="check-row conditional" id="lowLightField"><input data-path="confirmations.lowLightUsable" type="checkbox"><span><b>Nutzbarkeit bei Beleuchtungsausfall sichergestellt</b><small>Zum Beispiel durch geeignete Sicherheitsbeleuchtung oder langnachleuchtende Ausführung.</small></span></label>
+      </section>
+
+      <section class="editor-section" id="sectionRelease">
+        <div class="section-heading"><span>05</span><div><h2>Fachliche Freigabe</h2><p>Bestätigen Sie nur Punkte, die vor Ort tatsächlich geprüft wurden.</p></div></div>
+        <label class="check-row important"><input data-path="confirmations.facilitiesChecked" type="checkbox"><span><b>Sicherheitsausstattung vor Ort abgeglichen</b><small>Standorte von Erste Hilfe, Alarmierung und Brandbekämpfung stimmen mit der Realität überein.</small></span></label>
+        <label class="check-row important"><input data-path="confirmations.currentState" type="checkbox"><span><b>Aktueller baulicher Zustand bestätigt</b><small>Grundriss, Türen, Fluchtwege, Treppen und Ausgänge sind aktuell.</small></span></label>
+        <label class="check-row important"><input data-path="confirmations.professionalReview" type="checkbox"><span><b>Fachkundige Prüfung durchgeführt</b><small>Brandschutzkonzept, Gefährdungsbeurteilung und örtliche Sonderanforderungen wurden berücksichtigt.</small></span></label>
+        <div class="legal-box">
+          <b>Wichtige Abgrenzung</b>
+          <p>Der digitale Norm-Check ist eine strukturierte Vollständigkeits- und Plausibilitätskontrolle. Er ist keine Zertifizierung und ersetzt weder die Prüfung der baulichen Situation noch behördliche oder brandschutztechnische Anforderungen.</p>
+          <p class="source-links">Rechtsgrundlagen: <a href="https://www.gesetze-im-internet.de/arbst_ttv_2004/__4.html" target="_blank" rel="noopener">ArbStättV § 4 Abs. 4</a> · <a href="https://www.baua.de/DE/Angebote/Regelwerk/ASR/ASR-A2-3" target="_blank" rel="noopener">ASR A2.3</a> · <a href="https://www.baua.de/DE/Angebote/Regelwerk/ASR/ASR-A1-3" target="_blank" rel="noopener">ASR A1.3</a> · DIN ISO 23601:2021-11</p>
+        </div>
+        <button class="button primary full" id="finalCheckBtn">Norm-Check durchführen und Bericht anzeigen</button>
+      </section>
+
+      <section class="norm-results" id="normResults" aria-live="polite">
+        <div class="empty-results"><span>✓</span><b>Norm-Check noch nicht ausgeführt</b><p>Nach Abschluss der Eingaben erhalten Sie einen gruppierten Prüfbericht.</p></div>
+      </section>
+    </aside>
+
+    <main class="workspace" aria-label="Planvorschau">
+      <div class="workspace-toolbar">
+        <div class="tool-group" role="toolbar" aria-label="Zeichenwerkzeuge">
+          <button class="tool active" data-tool="select" title="Element auswählen und verschieben"><span>↖</span>Auswahl</button>
+          <button class="tool" data-tool="route" title="Fluchtweg durch mehrere Punkte zeichnen"><span>➜</span>Fluchtweg</button>
+          <button class="tool" data-tool="room" title="Rechteckigen Raum zeichnen"><span>□</span>Raum</button>
+          <button class="tool" data-tool="wall" title="Wand als Linie zeichnen"><span>╱</span>Wand</button>
+          <button class="tool" data-tool="location" title="Betrachterstandort im Plan setzen"><span>●</span>Standort</button>
+        </div>
+        <div class="tool-group compact-tools">
+          <input id="labelText" aria-label="Beschriftung" placeholder="Raumbezeichnung">
+          <button class="tool" id="addLabelBtn" title="Beschriftung mittig einsetzen"><span>T</span>Text</button>
+          <button class="tool" id="finishRouteBtn" title="Aktuellen Fluchtweg abschließen"><span>✓</span>Weg abschließen</button>
+          <button class="tool" id="undoBtn" title="Letzte Änderung rückgängig machen"><span>↶</span>Zurück</button>
+          <button class="tool danger" id="deleteBtn" title="Ausgewähltes Element löschen"><span>⌫</span>Löschen</button>
         </div>
       </div>
-      <div class="row">
-        <label><input type="checkbox" id="showNorth" checked /> Nordpfeil anzeigen</label>
-        <label><input type="checkbox" id="showYouAreHere" checked /> „Sie sind hier“ anzeigen</label>
-      </div>
-    </section>
 
-    <!-- 5) AI -->
-    <section class="panel">
-      <h2>5) AI‑Unterstützung</h2>
-      <div class="row">
-        <textarea id="siteContext" rows="4" placeholder="Bauabschnitt, Gefährdungen, Besucheranteil, besondere Anforderungen …"></textarea>
+      <div class="canvas-stage">
+        <article class="plan-sheet" id="planSheet">
+          <header class="plan-header">
+            <div><span class="plan-kicker">Sicherheitskennzeichnung</span><h1 id="previewTitle">Flucht- und Rettungsplan</h1></div>
+            <dl>
+              <div><dt>Unternehmen</dt><dd id="previewCompany">–</dd></div>
+              <div><dt>Gebäude / Bereich</dt><dd id="previewLocation">–</dd></div>
+              <div><dt>Plannummer</dt><dd id="previewNumber">–</dd></div>
+              <div><dt>Stand</dt><dd id="previewRevision">–</dd></div>
+            </dl>
+          </header>
+          <div class="plan-content">
+            <div class="drawing-area">
+              <svg id="planCanvas" viewBox="0 0 1200 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Bearbeitbarer Flucht- und Rettungsplan">
+                <defs>
+                  <pattern id="minorGrid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="#dbe3e9" stroke-width="0.8"/></pattern>
+                  <marker id="routeArrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0 0L10 5L0 10Z" fill="#18864b"/></marker>
+                  <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity=".22"/></filter>
+                </defs>
+                <rect width="1200" height="760" fill="#fff"/>
+                <rect id="gridLayer" width="1200" height="760" fill="url(#minorGrid)" opacity=".42"/>
+                <g id="baseLayer"></g>
+                <g id="drawingLayer"></g>
+                <g id="routeLayer"></g>
+                <g id="symbolLayer"></g>
+                <g id="overlayLayer"></g>
+                <g id="previewLayer"></g>
+              </svg>
+              <div class="canvas-hint" id="canvasHint">Werkzeug wählen und im Plan arbeiten. Elemente lassen sich mit „Auswahl“ verschieben.</div>
+            </div>
+            <aside class="instruction-column">
+              <section><h2>Verhalten im Brandfall</h2><ol id="firePreview"></ol></section>
+              <section><h2>Verhalten bei Unfällen</h2><ol id="accidentPreview"></ol></section>
+              <div class="emergency-card"><span>Notruf</span><b id="emergencyPreview">112</b></div>
+            </aside>
+          </div>
+          <footer class="plan-footer">
+            <section class="legend"><h2>Legende</h2><div id="legendPreview"><span class="legend-empty">Verwendete Zeichen werden automatisch ergänzt.</span></div></section>
+            <section class="plan-meta"><span id="scalePreview">Maßstab 1:250</span><span id="authorPreview">Erstellt durch –</span><span id="datePreview">Datum –</span></section>
+          </footer>
+        </article>
       </div>
-      <div class="row">
-        <button id="aiSuggestBtn">AI: Symbol‑/Layout‑Vorschläge</button>
-        <button id="aiTextsBtn">AI: Verhaltensregeln (Brandfall/Unfall)</button>
-      </div>
-      <div class="row">
-        <pre id="aiOutput" class="code"></pre>
-      </div>
-    </section>
 
-    <!-- 6) Prüfung & Export -->
-    <section class="panel">
-      <h2>6) Prüfung & Export</h2>
-      <div class="row export">
-        <button id="validateBtn">DIN/ISO prüfen</button>
-        <button id="exportSVG">SVG exportieren</button>
-        <button id="exportPNG">PNG exportieren</button>
-        <button id="exportPDF">PDF (Clientdruck A3)</button>
-        <button id="exportPDFServer">PDF (Server, A3)</button>
+      <div class="export-bar">
+        <div><b id="exportStatus">Norm-Check erforderlich</b><span id="exportDetail">Der PDF-Export wird nach erfolgreicher Prüfung freigegeben.</span></div>
+        <button class="button secondary" id="svgBtn">Plan als SVG</button>
+        <button class="button primary" id="printBtn" disabled>Als PDF speichern / drucken</button>
       </div>
-      <div class="row">
-        <pre id="validationOutput" class="code"></pre>
-      </div>
-    </section>
-  </main>
+    </main>
+  </div>
 
-  <footer>
-    <small>
-      Hinweis: Gestaltung gemäß DIN ISO 23601; Sicherheitszeichen gemäß ISO 7010/ISO 3864. 
-      Endfreigabe durch fachkundige Stelle im Unternehmen erforderlich.
-    </small>
-  </footer>
+  <dialog id="saveDialog">
+    <form method="dialog">
+      <button class="dialog-close" value="cancel" aria-label="Dialog schließen">×</button>
+      <h2>Projekt sichern</h2>
+      <p>Die Projektdatei enthält alle Eingaben und kann später wieder geöffnet werden. Zusätzlich wird eine lokale Browserkopie gespeichert.</p>
+      <label>Dateiname<input id="projectName" value="flucht-und-rettungsplan"></label>
+      <div class="dialog-actions"><button class="button ghost" value="cancel">Abbrechen</button><button class="button primary" id="downloadProjectBtn" value="default">Projektdatei herunterladen</button></div>
+    </form>
+  </dialog>
 
-  <script src="./app.js"></script>
+  <script src="rules.js?v=20260803"></script>
+  <script src="app.js?v=20260803"></script>
 </body>
 </html>
