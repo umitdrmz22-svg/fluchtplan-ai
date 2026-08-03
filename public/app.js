@@ -562,7 +562,10 @@ function renderDocumentData() {
   $("#scalePreview").textContent = `Maßstab ${state.settings.scale || "–"}`;
   $("#authorPreview").textContent = `Erstellt durch ${state.meta.author || "–"}`;
   $("#datePreview").textContent = `Datum ${formatDate(state.meta.created)}`;
-  $("#emergencyPreview").textContent = state.meta.emergencyNumber || "112";
+  const emergency = state.meta.emergencyNumber || "Notruf 112";
+  const has112 = /112/.test(emergency);
+  $("#emergencyPreview").textContent = has112 ? "112" : emergency;
+  $("#additionalEmergencyPreview").textContent = has112 ? emergency.replace(/^.*?112\s*[·|,;/-]*\s*/i, "") : "";
   renderBehaviorList("#firePreview", state.behavior.fire);
   renderBehaviorList("#accidentPreview", state.behavior.accident);
 }

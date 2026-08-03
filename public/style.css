@@ -205,9 +205,11 @@ input[type="range"] { padding: 8px 0; accent-color: var(--green); }
 .instruction-column h2 { margin: 0; padding: 6px 8px; color: #fff; background: var(--navy); font-size: 10px; }
 .instruction-column ol { margin: 7px 7px 8px 22px; padding: 0; font-size: 7.5px; line-height: 1.35; color: #263c47; }
 .instruction-column li { margin: 2px 0; }
-.emergency-card { min-height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; border: 2px solid #cf3731; color: #a72b27; background: #fff; }
+.emergency-card { min-height: 52px; display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 12px; padding: 7px 10px; border: 2px solid #cf3731; color: #a72b27; background: #fff; }
 .emergency-card span { font-size: 9px; font-weight: 900; text-transform: uppercase; }
-.emergency-card b { font-size: 21px; }
+.emergency-card b { font-size: 24px; text-align: right; line-height: 1; }
+.emergency-card small { grid-column: 1 / -1; padding-top: 4px; border-top: 1px solid #efc1bf; font-size: 7px; font-weight: 800; text-align: right; }
+.emergency-card small:empty { display: none; }
 .plan-footer { min-height: 79px; padding: 8px 14px; display: grid; grid-template-columns: 1fr auto; gap: 12px; border-top: 2px solid #ccd7dc; }
 .plan-footer h2 { margin: 0 0 4px; font-size: 9px; color: var(--navy); }
 #legendPreview { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }

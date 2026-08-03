@@ -162,7 +162,7 @@
               <svg id="planCanvas" viewBox="0 0 1200 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Bearbeitbarer Flucht- und Rettungsplan">
                 <defs>
                   <pattern id="minorGrid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="#dbe3e9" stroke-width="0.8"/></pattern>
-                  <marker id="routeArrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0 0L10 5L0 10Z" fill="#18864b"/></marker>
+                  <marker id="routeArrow" markerWidth="24" markerHeight="24" refX="21" refY="12" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0L24 12L0 24Z" fill="#126f3d"/></marker>
                   <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity=".22"/></filter>
                 </defs>
                 <rect width="1200" height="760" fill="#fff"/>
@@ -179,7 +179,7 @@
             <aside class="instruction-column">
               <section><h2>Verhalten im Brandfall</h2><ol id="firePreview"></ol></section>
               <section><h2>Verhalten bei Unfällen</h2><ol id="accidentPreview"></ol></section>
-              <div class="emergency-card"><span>Notruf</span><b id="emergencyPreview">112</b></div>
+              <div class="emergency-card"><span>Notruf</span><b id="emergencyPreview">112</b><small id="additionalEmergencyPreview"></small></div>
             </aside>
           </div>
           <footer class="plan-footer">
