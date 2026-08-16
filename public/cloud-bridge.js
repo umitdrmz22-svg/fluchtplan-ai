@@ -5,6 +5,7 @@ let client=null;
 let session=null;
 let membership=null;
 let currentRecordKey='';
+let currentRecordOwnerId='';
 let saveTimer=null;
 let saving=false;
 const recordKeyStorage=`${cfg.appKey||'fluchtplan'}-cloud-record-key`;
@@ -55,12 +56,17 @@ function setStatus(text,error=false){
   badge.style.color=error?'#b42318':'';
 }
 
+async function waitForEhsAccess(){
+  if(globalThis.DefiDevEHSAccess)return globalThis.DefiDevEHSAccess;
+  if(!document.querySelector('script[src*="ehs-entitlement-gate.js"]'))return null;
+  return await new Promise(resolve=>window.addEventListener('defidev-ehs-entitlement-ready',event=>resolve(globalThis.DefiDevEHSAccess||event.detail||null),{once:true}));
+}
+
 async function listRecords(){
   const {data,error}=await client.from('app_records')
-    .select('record_key,title,payload,updated_at')
+    .select('record_key,title,payload,updated_at,owner_user_id')
     .eq('organization_id',membership.organization_id)
     .eq('app_key',cfg.appKey)
-    .eq('owner_user_id',session.user.id)
     .order('updated_at',{ascending:false});
   if(error)throw error;
   return data||[];
@@ -74,10 +80,11 @@ function renderProjectPicker(records){
   select.id='cloudProjectSelect';
   select.className='button ghost';
   select.title='Gespeicherten Plan öffnen';
-  select.innerHTML='<option value="">Meine Pläne</option>'+records.map(row=>`<option value="${escapeHtml(row.record_key)}" ${row.record_key===currentRecordKey?'selected':''}>${escapeHtml(row.title||'Flucht- und Rettungsplan')}</option>`).join('');
+  select.innerHTML='<option value="">Werk-Pläne</option>'+records.map(row=>`<option value="${escapeHtml(row.record_key)}" ${row.record_key===currentRecordKey?'selected':''}>${escapeHtml(row.title||'Flucht- und Rettungsplan')}</option>`).join('');
   select.addEventListener('change',()=>{
     const selected=records.find(row=>row.record_key===select.value);
     if(!selected)return;
+    currentRecordOwnerId=selected.owner_user_id||'';
     localStorage.setItem(recordKeyStorage,selected.record_key);
     localStorage.setItem(cfg.storageKey,JSON.stringify(selected.payload||{}));
     location.reload();
@@ -92,17 +99,34 @@ async function saveCloud(force=false){
   saving=true;
   setStatus('Wird online gespeichert …');
   try{
-    const row={
-      organization_id:membership.organization_id,
-      app_key:cfg.appKey,
-      record_key:currentRecordKey,
+    const common={
       title:titleOf(payload),
       payload,
-      owner_user_id:session.user.id,
       updated_by:session.user.id
     };
-    const {error}=await client.from('app_records').upsert(row,{onConflict:'organization_id,app_key,owner_user_id,record_key'});
-    if(error)throw error;
+    let updated=null;
+    if(currentRecordOwnerId){
+      const result=await client.from('app_records').update(common)
+        .eq('organization_id',membership.organization_id)
+        .eq('app_key',cfg.appKey)
+        .eq('owner_user_id',currentRecordOwnerId)
+        .eq('record_key',currentRecordKey)
+        .select('owner_user_id').maybeSingle();
+      if(result.error)throw result.error;
+      updated=result.data;
+    }
+    if(!updated){
+      const row={
+        organization_id:membership.organization_id,
+        app_key:cfg.appKey,
+        record_key:currentRecordKey,
+        ...common,
+        owner_user_id:session.user.id
+      };
+      const {error}=await client.from('app_records').insert(row);
+      if(error)throw error;
+      currentRecordOwnerId=session.user.id;
+    }
     setStatus('Online gespeichert ✓');
   }catch(error){
     console.error(error);
@@ -132,9 +156,13 @@ export async function prepare(){
   if(error)throw error;
   session=data.session;
   if(!session){renderAuth();return false;}
-  const {data:member,error:memberError}=await client.from('organization_members')
+  const ehsAccess=await waitForEhsAccess();
+  let memberQuery=client.from('organization_members')
     .select('organization_id,role,organizations(name)')
-    .eq('user_id',session.user.id).eq('status','active').limit(1).maybeSingle();
+    .eq('user_id',session.user.id).eq('status','active');
+  if(ehsAccess?.organizationId)memberQuery=memberQuery.eq('organization_id',ehsAccess.organizationId);
+  else memberQuery=memberQuery.limit(1);
+  const {data:member,error:memberError}=await memberQuery.maybeSingle();
   if(memberError)throw memberError;
   if(!member){renderAuth('Für dieses Konto ist kein aktiver Firmenbereich vorhanden.');return false;}
   membership=member;
@@ -144,10 +172,12 @@ export async function prepare(){
   const selected=records.find(row=>row.record_key===storedKey)||records[0]||null;
   if(selected){
     currentRecordKey=selected.record_key;
+    currentRecordOwnerId=selected.owner_user_id||'';
     localStorage.setItem(recordKeyStorage,currentRecordKey);
     localStorage.setItem(cfg.storageKey,JSON.stringify(selected.payload||{}));
   }else{
     currentRecordKey=crypto.randomUUID();
+    currentRecordOwnerId='';
     localStorage.setItem(recordKeyStorage,currentRecordKey);
   }
 
@@ -155,10 +185,12 @@ export async function prepare(){
   document.querySelector('#demoBtn')?.remove();
   document.querySelector('#newPlanBtn')?.addEventListener('click',()=>{
     currentRecordKey=crypto.randomUUID();
+    currentRecordOwnerId='';
     localStorage.setItem(recordKeyStorage,currentRecordKey);
   },{capture:true});
   document.querySelector('#projectUpload')?.addEventListener('change',()=>{
     currentRecordKey=crypto.randomUUID();
+    currentRecordOwnerId='';
     localStorage.setItem(recordKeyStorage,currentRecordKey);
   },{capture:true});
   document.querySelector('#saveBtn')?.addEventListener('click',()=>setTimeout(()=>saveCloud(true),0));
