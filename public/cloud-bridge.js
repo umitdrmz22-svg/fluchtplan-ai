@@ -4,6 +4,8 @@ const cfg=window.FRP_CLOUD_CONFIG||{};
 let client=null;
 let session=null;
 let membership=null;
+let originWerkId='';
+let originWerkName='';
 let currentRecordKey='';
 let currentRecordOwnerId='';
 let saveTimer=null;
@@ -22,7 +24,7 @@ function renderBlocked(){
 }
 
 function renderAuth(message=''){
-  document.body.innerHTML=`<main style="min-height:100vh;display:grid;place-items:center;padding:28px;background:#f4f7f8;font-family:Arial,sans-serif;color:#17343d"><section style="width:min(760px,100%);background:#fff;border:1px solid #d8e1e4;border-radius:18px;padding:32px;box-shadow:0 18px 48px rgba(23,52,61,.12)"><p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.14em;color:#657b82">GESCHÜTZTER FIRMENBEREICH</p><h1 style="margin:0 0 8px">Fluchtplan Studio</h1><p style="margin:0 0 22px;line-height:1.5">Bitte anmelden. Pläne werden anschließend dauerhaft dem Benutzerkonto und dessen Organisation zugeordnet.</p><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:22px"><form id="cloudLogin" style="display:grid;gap:12px"><h2 style="margin:0">Anmelden</h2><label>E-Mail<input name="email" type="email" required autocomplete="username" style="display:block;width:100%;box-sizing:border-box;padding:11px;margin-top:5px"></label><label>Passwort<input name="password" type="password" required autocomplete="current-password" style="display:block;width:100%;box-sizing:border-box;padding:11px;margin-top:5px"></label><button style="padding:12px;border:0;border-radius:8px;background:#0b5968;color:#fff;font-weight:700">Anmelden</button></form><form id="cloudSignup" style="display:grid;gap:12px"><h2 style="margin:0">Registrieren</h2><label>Name<input name="fullName" required autocomplete="name" style="display:block;width:100%;box-sizing:border-box;padding:11px;margin-top:5px"></label><label>Unternehmen<input name="company" required autocomplete="organization" style="display:block;width:100%;box-sizing:border-box;padding:11px;margin-top:5px"></label><label>E-Mail<input name="email" type="email" required autocomplete="email" style="display:block;width:100%;box-sizing:border-box;padding:11px;margin-top:5px"></label><label>Passwort<input name="password" type="password" minlength="10" required autocomplete="new-password" style="display:block;width:100%;box-sizing:border-box;padding:11px;margin-top:5px"></label><button style="padding:12px;border:0;border-radius:8px;background:#17343d;color:#fff;font-weight:700">Konto anlegen</button></form></div><p id="cloudAuthMessage" style="min-height:22px;margin:18px 0 0;color:#b42318">${escapeHtml(message)}</p></section></main>`;
+  document.body.innerHTML=`<main style="min-height:100vh;display:grid;place-items:center;padding:28px;background:#f4f7f8;font-family:Arial,sans-serif;color:#17343d"><section style="width:min(760px,100%);background:#fff;border:1px solid #d8e1e4;border-radius:18px;padding:32px;box-shadow:0 18px 48px rgba(23,52,61,.12)"><p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.14em;color:#657b82">GESCHÜTZTER FIRMENBEREICH</p><h1 style="margin:0 0 8px">Fluchtplan Studio</h1><p style="margin:0 0 22px;line-height:1.5">Bitte anmelden. Pläne werden anschließend dauerhaft dem Benutzerkonto und dem ausgewählten Werk zugeordnet.</p><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:22px"><form id="cloudLogin" style="display:grid;gap:12px"><h2 style="margin:0">Anmelden</h2><label>E-Mail<input name="email" type="email" required autocomplete="username" style="display:block;width:100%;box-sizing:border-box;padding:11px;margin-top:5px"></label><label>Passwort<input name="password" type="password" required autocomplete="current-password" style="display:block;width:100%;box-sizing:border-box;padding:11px;margin-top:5px"></label><button style="padding:12px;border:0;border-radius:8px;background:#0b5968;color:#fff;font-weight:700">Anmelden</button></form><form id="cloudSignup" style="display:grid;gap:12px"><h2 style="margin:0">Registrieren</h2><label>Name<input name="fullName" required autocomplete="name" style="display:block;width:100%;box-sizing:border-box;padding:11px;margin-top:5px"></label><label>Unternehmen<input name="company" required autocomplete="organization" style="display:block;width:100%;box-sizing:border-box;padding:11px;margin-top:5px"></label><label>E-Mail<input name="email" type="email" required autocomplete="email" style="display:block;width:100%;box-sizing:border-box;padding:11px;margin-top:5px"></label><label>Passwort<input name="password" type="password" minlength="10" required autocomplete="new-password" style="display:block;width:100%;box-sizing:border-box;padding:11px;margin-top:5px"></label><button style="padding:12px;border:0;border-radius:8px;background:#17343d;color:#fff;font-weight:700">Konto anlegen</button></form></div><p id="cloudAuthMessage" style="min-height:22px;margin:18px 0 0;color:#b42318">${escapeHtml(message)}</p></section></main>`;
   const output=document.querySelector('#cloudAuthMessage');
   document.querySelector('#cloudLogin')?.addEventListener('submit',async event=>{
     event.preventDefault();
@@ -63,9 +65,11 @@ async function waitForEhsAccess(){
 }
 
 async function listRecords(){
+  if(!originWerkId)return [];
   const {data,error}=await client.from('app_records')
-    .select('record_key,title,payload,updated_at,owner_user_id')
+    .select('record_key,title,payload,updated_at,owner_user_id,origin_werk_id')
     .eq('organization_id',membership.organization_id)
+    .eq('origin_werk_id',originWerkId)
     .eq('app_key',cfg.appKey)
     .order('updated_at',{ascending:false});
   if(error)throw error;
@@ -80,7 +84,7 @@ function renderProjectPicker(records){
   select.id='cloudProjectSelect';
   select.className='button ghost';
   select.title='Gespeicherten Plan öffnen';
-  select.innerHTML='<option value="">Werk-Pläne</option>'+records.map(row=>`<option value="${escapeHtml(row.record_key)}" ${row.record_key===currentRecordKey?'selected':''}>${escapeHtml(row.title||'Flucht- und Rettungsplan')}</option>`).join('');
+  select.innerHTML=`<option value="">${escapeHtml(originWerkName||'Werk')} · Pläne</option>`+records.map(row=>`<option value="${escapeHtml(row.record_key)}" ${row.record_key===currentRecordKey?'selected':''}>${escapeHtml(row.title||'Flucht- und Rettungsplan')}</option>`).join('');
   select.addEventListener('change',()=>{
     const selected=records.find(row=>row.record_key===select.value);
     if(!selected)return;
@@ -93,21 +97,18 @@ function renderProjectPicker(records){
 }
 
 async function saveCloud(force=false){
-  if((saving&&!force)||!membership||!session)return;
+  if((saving&&!force)||!membership||!session||!originWerkId)return;
   const payload=parseLocal();
   if(!payload)return;
   saving=true;
   setStatus('Wird online gespeichert …');
   try{
-    const common={
-      title:titleOf(payload),
-      payload,
-      updated_by:session.user.id
-    };
+    const common={title:titleOf(payload),payload,updated_by:session.user.id};
     let updated=null;
     if(currentRecordOwnerId){
       const result=await client.from('app_records').update(common)
         .eq('organization_id',membership.organization_id)
+        .eq('origin_werk_id',originWerkId)
         .eq('app_key',cfg.appKey)
         .eq('owner_user_id',currentRecordOwnerId)
         .eq('record_key',currentRecordKey)
@@ -118,6 +119,7 @@ async function saveCloud(force=false){
     if(!updated){
       const row={
         organization_id:membership.organization_id,
+        origin_werk_id:originWerkId,
         app_key:cfg.appKey,
         record_key:currentRecordKey,
         ...common,
@@ -130,7 +132,8 @@ async function saveCloud(force=false){
     setStatus('Online gespeichert ✓');
   }catch(error){
     console.error(error);
-    setStatus('Online-Speicherung fehlgeschlagen',true);
+    const message=String(error?.message||'');
+    setStatus(message.includes('EHS_ORIGIN')?'Werk-Kontext ungültig. Bitte über das EHS-Dashboard erneut öffnen.':'Online-Speicherung fehlgeschlagen',true);
   }finally{saving=false;}
 }
 
@@ -157,10 +160,15 @@ export async function prepare(){
   session=data.session;
   if(!session){renderAuth();return false;}
   const ehsAccess=await waitForEhsAccess();
+  const selectedWerk=ehsAccess?.selectedWerk||(Array.isArray(ehsAccess?.works)&&ehsAccess.works.length===1?ehsAccess.works[0]:null);
+  originWerkId=String(selectedWerk?.id||'');
+  originWerkName=String(selectedWerk?.name||selectedWerk?.code||'Werk');
+  if(!originWerkId){renderAuth('Bitte dieses Modul über das EHS-Dashboard öffnen und ein Werk auswählen.');return false;}
   let memberQuery=client.from('organization_members')
     .select('organization_id,role,organizations(name)')
     .eq('user_id',session.user.id).eq('status','active');
-  if(ehsAccess?.organizationId)memberQuery=memberQuery.eq('organization_id',ehsAccess.organizationId);
+  if(selectedWerk?.organizationId)memberQuery=memberQuery.eq('organization_id',selectedWerk.organizationId);
+  else if(ehsAccess?.organizationId)memberQuery=memberQuery.eq('organization_id',ehsAccess.organizationId);
   else memberQuery=memberQuery.limit(1);
   const {data:member,error:memberError}=await memberQuery.maybeSingle();
   if(memberError)throw memberError;
@@ -195,7 +203,7 @@ export async function prepare(){
   },{capture:true});
   document.querySelector('#saveBtn')?.addEventListener('click',()=>setTimeout(()=>saveCloud(true),0));
 
-  setStatus(`Online · ${member.organizations?.name||'Organisation'}`);
+  setStatus(`Online · ${originWerkName}`);
   renderProjectPicker(records);
   const actions=document.querySelector('.header-actions');
   if(actions){
