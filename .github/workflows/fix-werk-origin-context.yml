@@ -1,21 +1,32 @@
 name: Fix Werk origin context
+
 on:
   push:
-    branches: [main]
-    paths: ['.github/workflows/fix-werk-origin-context.yml']
-  workflow_dispatch: {}
-permissions: { contents: write }
+    branches:
+      - main
+    paths:
+      - .github/workflows/fix-werk-origin-context.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
 jobs:
   patch:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Patch cloud bridge
+        shell: bash
         run: |
+          set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('public/cloud-bridge.js'); s=p.read_text()
+          p=Path('public/cloud-bridge.js')
+          s=p.read_text()
           if "let originWerkId='';" not in s:
               s=s.replace("let membership=null;\n", "let membership=null;\nlet originWerkId='';\n",1)
           old="""  const {data,error}=await client.from('app_records')
@@ -30,14 +41,16 @@ jobs:
   if(originWerkId)query=query.eq('origin_werk_id',originWerkId);
   const {data,error}=await query.order('updated_at',{ascending:false});"""
           if new not in s:
-              assert old in s, 'listRecords anchor missing'; s=s.replace(old,new,1)
+              if old not in s: raise SystemExit('listRecords anchor missing')
+              s=s.replace(old,new,1)
           oldrow="""        organization_id:membership.organization_id,
         app_key:cfg.appKey,"""
           newrow="""        organization_id:membership.organization_id,
         origin_werk_id:originWerkId,
         app_key:cfg.appKey,"""
           if newrow not in s:
-              assert oldrow in s, 'insert row anchor missing'; s=s.replace(oldrow,newrow,1)
+              if oldrow not in s: raise SystemExit('insert row anchor missing')
+              s=s.replace(oldrow,newrow,1)
           anchor="""  const ehsAccess=await waitForEhsAccess();
   let memberQuery=client.from('organization_members')"""
           replacement="""  const ehsAccess=await waitForEhsAccess();
@@ -46,19 +59,29 @@ jobs:
   if(!originWerkId){renderAuth('Bitte dieses Modul über das EHS-Dashboard öffnen und ein Werk auswählen.');return false;}
   let memberQuery=client.from('organization_members')"""
           if replacement not in s:
-              assert anchor in s, 'EHS access anchor missing'; s=s.replace(anchor,replacement,1)
+              if anchor not in s: raise SystemExit('EHS access anchor missing')
+              s=s.replace(anchor,replacement,1)
           p.write_text(s)
           PY
           node --check public/cloud-bridge.js
-          grep -q 'origin_werk_id' public/cloud-bridge.js
-          grep -q "query.eq('origin_werk_id',originWerkId)" public/cloud-bridge.js
-      - name: Tests x3
+          grep -Fq 'origin_werk_id:originWerkId' public/cloud-bridge.js
+          grep -Fq "query.eq('origin_werk_id',originWerkId)" public/cloud-bridge.js
+
+      - name: Run tests three times
+        shell: bash
         run: |
-          for i in 1 2 3; do npm test; done
-      - name: Commit
+          set -euo pipefail
+          npm test
+          npm test
+          npm test
+
+      - name: Commit tested patch
+        shell: bash
         run: |
-          git config user.name 'DefiDev Automation'; git config user.email 'actions@users.noreply.github.com'
+          set -euo pipefail
+          git config user.name 'DefiDev Automation'
+          git config user.email 'actions@users.noreply.github.com'
           git add public/cloud-bridge.js
-          git diff --cached --quiet && exit 0
+          if git diff --cached --quiet; then exit 0; fi
           git commit -m 'Scope Fluchtplan records to selected Werk'
           git push
