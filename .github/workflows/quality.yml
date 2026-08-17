@@ -22,8 +22,12 @@ jobs:
           node --check public/cloud-config.js
           node --check public/rules.js
           node --input-type=module --check < public/cloud-bridge.js
-      - name: Deploy-Lizenzvertrag prüfen
+      - name: Werk- und Lizenzisolierung prüfen
         run: |
+          grep -Fq 'origin_werk_id:originWerkId' public/cloud-bridge.js
+          grep -Fq ".eq('origin_werk_id',originWerkId)" public/cloud-bridge.js
+          grep -Fq 'selectedWerk' public/cloud-bridge.js
+          grep -Fq 'organizationId' public/cloud-bridge.js
           test -f .github/workflows/ehs-module-gate.yml
           grep -Fq 'defidev-legal/ehs-entitlement-gate.js' .github/workflows/ehs-module-gate.yml
           grep -Fq 'ehs_fluchtplan_monthly' .github/workflows/ehs-module-gate.yml
