@@ -474,7 +474,7 @@ function renderRoute(points, id, preview) {
   if (points.length < 2) return;
   const value = points.map((point) => `${point.x},${point.y}`).join(" ");
   const route = svgElement("polyline", { points: value, class: `route-line plan-element${id === selectedId ? " selected" : ""}`, "data-id": id || "", opacity: preview ? .55 : 1 });
-  const core = svgElement("polyline", { points: value, class: "route-core" });
+  const core = svgElement("polyline", { points: value, class: "route-core", "data-id": id || "" });
   (preview ? layers.preview : layers.route).append(route, core);
 }
 
